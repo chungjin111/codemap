@@ -1,0 +1,682 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>코드맵 (codemap) · 코드맵</title>
+<style>
+:root {
+  --bg: #f3f1ea; --dot: #d6d2c5; --surface: #fffefa; --surface-2: #f7f5ee;
+  --ink: #1d1c19; --muted: #6d6960; --line: #dbd7ca;
+  --shadow: 0 1px 2px rgba(40,32,16,.07), 0 8px 22px rgba(40,32,16,.07);
+  --code-bg: #fbfaf5; --code-ink: #2b2a26;
+  --t-com: #8d8779; --t-str: #2c7a4b; --t-kw: #a03c8e; --t-num: #b15f14;
+  --t-fn: #2a5fc0; --t-type: #0c7b84; --t-dec: #b15f14;
+  --L: .55; --C: .135; --tintL: .955; --tintC: .03;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "D2Coding", monospace;
+  --sans: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", system-ui, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #131312; --dot: #2a2926; --surface: #1e1d1b; --surface-2: #252421;
+    --ink: #ece9e1; --muted: #a09b90; --line: #36342f;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 22px rgba(0,0,0,.28);
+    --code-bg: #191817; --code-ink: #dedbd2;
+    --t-com: #7d786c; --t-str: #86c79b; --t-kw: #d993c9; --t-num: #e0a467;
+    --t-fn: #8fb4f2; --t-type: #6fc8cf; --t-dec: #e0a467;
+    --L: .76; --C: .115; --tintL: .265; --tintC: .035;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #131312; --dot: #2a2926; --surface: #1e1d1b; --surface-2: #252421;
+  --ink: #ece9e1; --muted: #a09b90; --line: #36342f;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 22px rgba(0,0,0,.28);
+  --code-bg: #191817; --code-ink: #dedbd2;
+  --t-com: #7d786c; --t-str: #86c79b; --t-kw: #d993c9; --t-num: #e0a467;
+  --t-fn: #8fb4f2; --t-type: #6fc8cf; --t-dec: #e0a467;
+  --L: .76; --C: .115; --tintL: .265; --tintC: .035;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  display: grid; grid-template-rows: auto 1fr; background: var(--bg); color: var(--ink);
+  font: 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; overflow: hidden;
+}
+button { font: inherit; color: inherit; }
+
+/* ── 상단 바 ── */
+.bar {
+  display: flex; align-items: center; gap: 12px 20px; flex-wrap: wrap;
+  padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line); z-index: 5;
+}
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 220px; }
+.brand svg { flex: none; color: var(--ink); }
+.brand h1 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brand span { display: block; font-size: 11.5px; color: var(--muted); }
+.tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.btn {
+  height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); cursor: pointer; font-size: 12.5px; font-weight: 500; white-space: nowrap;
+  transition: background .12s, border-color .12s;
+}
+.btn:hover { background: var(--surface-2); border-color: var(--muted); }
+.btn:focus-visible, .lk:focus-visible, .copy:focus-visible, .pt:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.btn.icon { width: 32px; padding: 0; display: grid; place-items: center; }
+.btn.scope { color: var(--muted); }
+.btn.scope b { color: var(--ink); font-weight: 600; }
+.seg { display: flex; }
+.seg .btn:first-child { border-radius: 8px 0 0 8px; }
+.seg .btn:last-child { border-radius: 0 8px 8px 0; margin-left: -1px; }
+
+/* ── 캔버스 ── */
+#vp {
+  position: relative; overflow: hidden; touch-action: none; cursor: grab;
+  background-image: radial-gradient(var(--dot) 1.1px, transparent 1.2px); background-size: 24px 24px;
+}
+#vp.grabbing { cursor: grabbing; }
+#canvas { position: absolute; left: 0; top: 0; width: max-content; transform-origin: 0 0; will-change: transform; }
+#canvas.glide { transition: transform .3s cubic-bezier(.2,.7,.2,1); }
+#edges { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
+.edge { fill: none; stroke: oklch(var(--L) var(--C) var(--h)); stroke-width: 1.75; opacity: .75; }
+.edge.code { stroke-width: 1.4; }
+.edge.explain { stroke-width: 1.4; stroke-dasharray: 3 4; }
+.flow { fill: none; stroke: var(--muted); stroke-width: 1.5; opacity: .7; }
+#arr path { fill: var(--muted); }
+
+.branch {
+  display: flex; align-items: center; gap: 58px; flex: none;
+  --accent: oklch(var(--L) var(--C) var(--h, 255));
+  --tint: oklch(var(--tintL) var(--tintC) var(--h, 255));
+}
+.kids { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; flex: none; }
+.kids.ordered { gap: 28px; }
+.kids[hidden] { display: none; }
+.kids.enter > .branch { animation: pop .24s ease both; }
+@keyframes pop { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
+
+/* ── 박스 공통 ── */
+.node {
+  position: relative; flex: none; width: max-content; min-width: 150px; max-width: 290px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 10px 14px 10px 12px; box-shadow: var(--shadow);
+  cursor: pointer; user-select: none; -webkit-user-select: none;
+  transition: border-color .15s, background .15s, box-shadow .15s;
+}
+.node:hover { border-color: var(--accent); }
+.node:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.node.leaf, .node.explain { cursor: inherit; }
+.node.flash { animation: flash 1.4s ease; }
+@keyframes flash { 0%, 60% { box-shadow: 0 0 0 4px color-mix(in oklch, var(--accent) 45%, transparent), var(--shadow); } 100% { box-shadow: var(--shadow); } }
+.eyebrow { font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; opacity: .65; margin-bottom: 2px; }
+.title { font-weight: 650; font-size: 14px; letter-spacing: -.01em; line-height: 1.35; }
+.sum { margin: 4px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
+
+/* 펼침 손잡이: 닫혀 있으면 하위 개수, 열려 있으면 − */
+.tog {
+  position: absolute; right: -11px; top: 50%; translate: 0 -50%;
+  min-width: 22px; height: 22px; padding: 0 5px; border-radius: 11px;
+  display: grid; place-items: center; font: 600 11px/1 var(--sans);
+  background: var(--surface); color: var(--accent); border: 1.5px solid var(--accent);
+}
+.node.open > .tog { background: var(--accent); color: var(--surface); }
+
+/* 루트 */
+.node.root { background: var(--ink); color: var(--bg); border-color: var(--ink); max-width: 300px; padding: 14px 18px 14px 16px; border-radius: 16px; }
+.node.root .title { font-size: 17px; font-weight: 750; }
+.node.root .sum { color: inherit; opacity: .78; }
+.node.root > .tog { background: var(--bg); color: var(--ink); border-color: var(--ink); }
+.node.root.open > .tog { background: var(--ink); color: var(--bg); border-color: var(--bg); }
+
+/* 기능 박스 */
+.node.feat { border-left: 4px solid var(--accent); }
+.node.feat.open { background: var(--tint); border-color: var(--accent); }
+.row { display: flex; align-items: baseline; gap: 8px; }
+.step {
+  flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; align-self: center;
+  background: var(--accent); color: var(--surface); font: 700 11px/1 var(--sans);
+}
+.meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.chip { font: 11px/1.5 var(--mono); padding: 1px 7px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node.feat.open .chip { background: color-mix(in oklch, var(--surface) 60%, transparent); }
+.links { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; margin-top: 8px; }
+.lk {
+  border: 0; background: none; padding: 1px 0; cursor: pointer; text-align: left;
+  font-size: 11.5px; color: var(--accent); font-weight: 600; max-width: 100%; white-space: normal;
+}
+.lk:hover { text-decoration: underline; }
+.lk span { color: var(--muted); font-weight: 400; }
+
+/* 코드 박스 */
+.node.code { max-width: 780px; min-width: 300px; padding: 0; overflow: visible; background: var(--code-bg); }
+.node.code.open { border-color: var(--accent); }
+.code-head { display: flex; align-items: center; gap: 10px; padding: 8px 14px 8px 12px; border-bottom: 1px solid var(--line); background: var(--surface); border-radius: 12px 12px 0 0; }
+.code-title { font-weight: 650; font-size: 13px; }
+.code-loc { margin-left: auto; font: 11px/1.4 var(--mono); color: var(--muted); white-space: nowrap; }
+.copy { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 1px 8px; font-size: 11px; color: var(--muted); cursor: pointer; }
+.copy:hover { color: var(--ink); border-color: var(--muted); }
+.src { margin: 0; padding: 8px 0; font: 12px/1.6 var(--mono); color: var(--code-ink); tab-size: 4; }
+.l { display: grid; grid-template-columns: 46px minmax(0, 1fr); min-height: 1.6em; }
+.ln { text-align: right; padding-right: 12px; color: var(--muted); opacity: .55; }
+.lc { white-space: pre-wrap; overflow-wrap: anywhere; padding-right: 18px; }
+.l.hl, .l.pin { background: color-mix(in oklch, var(--accent) 17%, transparent); }
+.l.hl .ln, .l.pin .ln { opacity: 1; color: var(--accent); font-weight: 700; }
+.t-com { color: var(--t-com); font-style: italic; } .t-str { color: var(--t-str); } .t-kw { color: var(--t-kw); }
+.t-num { color: var(--t-num); } .t-fn { color: var(--t-fn); } .t-type { color: var(--t-type); } .t-dec { color: var(--t-dec); }
+.code-foot { padding: 6px 12px; font-size: 11.5px; color: var(--accent); font-weight: 600; border-top: 1px dashed var(--line); border-radius: 0 0 12px 12px; }
+.node.code .when-open, .node.code.open .when-closed { display: none; }
+.node.code.open .when-open { display: inline; }
+
+/* 설명 박스 */
+.node.explain { max-width: 360px; background: var(--tint); border-color: color-mix(in oklch, var(--accent) 40%, var(--line)); padding: 12px 14px; }
+.node.explain .eyebrow { color: var(--accent); opacity: 1; }
+.prose p { margin: 0 0 8px; font-size: 13px; line-height: 1.65; }
+.prose p:last-child { margin-bottom: 0; }
+.prose code, .pt code { font: 12px var(--mono); padding: 1px 5px; border-radius: 4px; background: color-mix(in oklch, var(--surface) 70%, transparent); border: 1px solid color-mix(in oklch, var(--accent) 25%, transparent); }
+.pts { list-style: none; margin: 10px 0 0; padding: 8px 0 0; border-top: 1px dashed color-mix(in oklch, var(--accent) 40%, transparent); display: grid; gap: 2px; }
+.pt { display: grid; grid-template-columns: auto 1fr; gap: 8px; padding: 4px 6px; margin: 0 -6px; border-radius: 6px; font-size: 12.5px; line-height: 1.55; cursor: pointer; }
+.pt:hover, .pt.pin { background: color-mix(in oklch, var(--accent) 16%, transparent); }
+.pt-ln { font: 600 11px/1.9 var(--mono); color: var(--accent); white-space: nowrap; }
+
+/* ── 떠 있는 UI ── */
+.float { position: absolute; z-index: 4; cursor: default; }
+.hint { left: 14px; bottom: 14px; font-size: 11.5px; color: var(--muted); background: color-mix(in oklch, var(--surface) 88%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; }
+.hint b { color: var(--ink); font-weight: 600; }
+.zoom { right: 14px; bottom: 14px; display: flex; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
+.zoom button { width: 32px; height: 32px; border: 0; background: none; cursor: pointer; font-size: 16px; border-radius: 8px; }
+.zoom button:hover { background: var(--surface-2); }
+.zoom span { min-width: 46px; text-align: center; font: 12px var(--mono); color: var(--muted); }
+#scope {
+  top: 12px; right: 12px; bottom: 12px; width: min(380px, calc(100% - 24px)); overflow: auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 16px 18px;
+}
+#scope[hidden] { display: none; }
+#scope h2 { margin: 0 0 4px; font-size: 15px; }
+#scope h3 { margin: 18px 0 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+#scope p { margin: 0 0 8px; font-size: 12.5px; color: var(--muted); }
+#scope .x { position: absolute; top: 10px; right: 10px; }
+.stat { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.stat div { background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+.stat b { display: block; font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+.stat span { font-size: 11.5px; color: var(--muted); }
+.drop { padding: 8px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
+.drop div { display: flex; justify-content: space-between; gap: 10px; font-weight: 600; }
+.drop div span { color: var(--muted); font-weight: 400; white-space: nowrap; }
+.drop small { display: block; margin-top: 2px; font: 11px/1.5 var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+
+@media (max-width: 640px) {
+  .bar { padding: 8px 12px; }
+  .hint { display: none; }
+  .btn { padding: 0 9px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kids.enter > .branch, .node.flash { animation: none; }
+  #canvas.glide { transition: none; }
+}
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="brand">
+    <svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+      <circle cx="6" cy="13" r="3.2" fill="currentColor"/><path d="M9.2 13h3.3M12.5 13C15 13 14.5 6 18 6M12.5 13c2.5 0 2 7 5.5 7M12.5 13H18"/>
+      <circle cx="20.5" cy="6" r="2.2"/><circle cx="20.5" cy="13" r="2.2"/><circle cx="20.5" cy="20" r="2.2"/>
+    </svg>
+    <div style="min-width:0"><h1 id="t-title"></h1><span id="t-sub"></span></div>
+  </div>
+  <div class="tools">
+    <button class="btn scope" id="b-scope" type="button"></button>
+    <div class="seg" role="group" aria-label="펼침 단계">
+      <button class="btn" type="button" data-act="less" title="가장 깊이 펼쳐진 층을 접습니다">− 한 층 접기</button>
+      <button class="btn" type="button" data-act="more" title="한 층 더 펼칩니다">+ 한 층 펼치기</button>
+    </div>
+    <button class="btn" type="button" data-act="reset">처음으로</button>
+    <button class="btn" type="button" data-act="fit">화면 맞춤</button>
+    <button class="btn icon" type="button" data-act="theme" aria-label="밝게/어둡게 전환" title="밝게/어둡게">
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.8a6.2 6.2 0 0 1 0 12.4z" fill="currentColor"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="vp">
+  <div id="canvas">
+    <svg id="edges" aria-hidden="true">
+      <defs><marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0.5 8 4 0 7.5z"/></marker></defs>
+      <g id="edge-g"></g>
+    </svg>
+    <div id="tree"></div>
+  </div>
+  <div class="float hint"><b>박스</b> 클릭 → 하위 기능·코드 &nbsp;·&nbsp; <b>코드</b> 클릭 → 설명 (다시 누르면 닫힘) &nbsp;·&nbsp; 드래그로 이동 &nbsp;·&nbsp; Ctrl/⌘+휠로 확대</div>
+  <div class="float zoom"><button type="button" data-act="zout" aria-label="축소">−</button><span id="zoom-v">100%</span><button type="button" data-act="zin" aria-label="확대">+</button></div>
+  <aside class="float" id="scope" hidden></aside>
+</main>
+
+<script id="codemap-data" type="application/json">{"title":"코드맵 (codemap)","summary":"코드베이스를 **이름 → 뼈대 → 핵심 줄** 순으로 좁혀 읽고, 클릭형 마인드맵 HTML 한 장으로 만드는 도구.","generated":"2026-11-15","ordered":true,"scope":{"analyzed":5,"in_map":5,"dropped_files":1,"dropped_dirs":1,"dropped":[{"reason":"빌드 산출물·캐시 폴더","files":0,"dirs":1,"examples":["codemap_out/"]},{"reason":"문서","files":1,"dirs":0,"examples":["SKILL.md"]}],"groups":[]},"nodes":[{"id":"cli","title":"명령 받기","summary":"scan · skeleton · read · build 네 단계를 하위 명령으로 나눠 받는다.","file":"skill_scripts/codemap.py","code":[{"title":"하위 명령 등록","file":"skill_scripts/codemap.py","start":66,"end":72,"lang":"python","source":"def main(argv=None):\n    p = argparse.ArgumentParser(prog=\"codemap\", description=\"코드베이스 → 마인드맵 HTML\")\n    sub = p.add_subparsers(dest=\"cmd\", required=True)\n\n    s = sub.add_parser(\"scan\", help=\"이름만 보고 분석 대상을 고른다\")\n    s.add_argument(\"src\", help=\"프로젝트 폴더 또는 zip 파일\")\n    s.add_argument(\"--out\", help=\"작업 폴더 (기본: ./codemap_out/\u003c이름>)\")","explain":"`argparse` 의 서브파서로 단계마다 명령을 하나씩 만든다. 각 단계가 파일(manifest.json → skeleton.md → analysis.json)로 결과를 넘기므로, 중간에 끊겨도 그 단계부터 다시 실행할 수 있다.","points":[{"a":68,"b":68,"text":"`required=True` — 하위 명령 없이 실행하면 사용법을 보여 준다."},{"a":70,"b":72,"text":"첫 단계 `scan` 은 폴더와 zip 을 모두 받는다."}]}]},{"id":"scan","title":"이름만 보고 거르기","summary":"파일을 열지 않고 경로와 크기만으로 분석 대상을 고른다. 여기서 버린 것은 토큰을 0 쓴다.","file":"skill_scripts/scan.py","children":[{"id":"scan-dir","title":"폴더째 버리기","summary":"node_modules, dist, .git 같은 폴더는 안으로 내려가지도 않는다.","code":[{"title":"폴더 이름 판정","file":"skill_scripts/scan.py","start":136,"end":148,"lang":"python","source":"def dir_drop_reason(dirname: str, keep_tests: bool, keep_samples: bool):\n    low = dirname.lower()\n    for reason, names in DIR_RULES.items():\n        if dirname in names or low in names:\n            return reason\n    if dirname.endswith(\".egg-info\") or dirname.endswith(\".xcassets\") \\\n            or dirname.endswith(\".xcodeproj\") or dirname.endswith(\".xcworkspace\"):\n        return \"빌드 산출물·캐시 폴더\"\n    if not keep_tests and low in TEST_DIRS:\n        return \"테스트 코드\"\n    if not keep_samples and low in SAMPLE_DIRS:\n        return \"예제·샘플 폴더\"\n    return None","explain":"폴더 **이름 하나만** 보고 버릴지 정한다. 버릴 때는 사유 문자열을, 남길 때는 `None` 을 돌려준다. 사유는 나중에 HTML의 '분석 범위' 패널에 그대로 표시된다.","points":[{"a":138,"b":140,"text":"`DIR_RULES` 표에서 찾는다: 의존성 / 빌드 산출물 / 버전관리 / 자동 생성 / 문서."},{"a":144,"b":147,"text":"테스트·예제 폴더는 옵션(`--keep-tests`, `--keep-samples`)으로 되살릴 수 있다."}]},{"title":"내려가지 않고 건너뛰기","file":"skill_scripts/scan.py","start":218,"end":232,"lang":"python","source":"def walk_dir(root, opts, dropped):\n    \"\"\"폴더를 훑는다. 버릴 폴더는 아예 내려가지 않는다.\"\"\"\n    seen = 0\n    for cur, dirs, files in os.walk(root, topdown=True, followlinks=False):\n        relcur = os.path.relpath(cur, root).replace(os.sep, \"/\")\n        relcur = \"\" if relcur == \".\" else relcur + \"/\"\n        keep_dirs = []\n        for d in sorted(dirs):\n            reason = dir_drop_reason(d, opts[\"keep_tests\"], opts[\"keep_samples\"])\n            if reason is None and os.path.exists(os.path.join(cur, d, \"pyvenv.cfg\")):\n                reason = \"의존성·외부 라이브러리 폴더\"\n            if reason and _user_rule(relcur + d + \"/\", opts[\"include\"], None) != \"keep\":\n                dropped.add(reason, relcur + d + \"/\", is_dir=True)\n            else:\n                keep_dirs.append(d)","explain":"`os.walk` 는 `dirs` 목록을 제자리에서 고치면 그 폴더로 내려가지 않는다. 이 성질을 이용해 버릴 폴더를 **훑는 비용조차 없이** 건너뛴다.","points":[{"a":227,"b":228,"text":"이름이 `env` 처럼 애매해도 `pyvenv.cfg` 가 있으면 가상환경으로 본다 (존재 여부만 확인, 내용은 읽지 않음)."},{"a":229,"b":229,"text":"사용자가 `--include` 로 지정한 폴더는 규칙보다 우선한다."}]}]},{"id":"scan-file","title":"파일 하나씩 판정","summary":"잠금 파일 · 바이너리 · 생성 코드 · 테스트 · 문서 · 스타일 · 데이터 순으로 걸러 낸다.","code":[{"title":"classify_file()","file":"skill_scripts/scan.py","start":151,"end":189,"lang":"python","source":"def classify_file(rel: str, size: int, keep_tests: bool):\n    \"\"\"(판정, 값) 을 돌려준다. 판정이 'keep' 이면 값은 (lang, role), 'drop' 이면 사유.\"\"\"\n    name = os.path.basename(rel)\n    low = name.lower()\n    ext = os.path.splitext(low)[1]\n    depth = rel.count(\"/\")\n\n    if low in LOCK_NAMES:\n        return \"drop\", \"잠금 파일·소스맵·압축본\"\n    if low in MANIFEST_NAMES and depth \u003c= 2:\n        return \"keep\", (\"manifest\", \"manifest\")\n    if low.startswith(\"readme\") and depth == 0:\n        return \"keep\", (\"readme\", \"readme\")\n    if name.startswith(\".\"):\n        return \"drop\", \"숨김 설정 파일\"\n    if ext in BINARY_EXT:\n        return \"drop\", \"이미지·폰트·미디어·바이너리\"\n    if _match_any(low, GENERATED_PATTERNS):\n        if \".min.\" in low or low.endswith(\".map\") or \"bundle\" in low or \"chunk\" in low:\n            return \"drop\", \"잠금 파일·소스맵·압축본\"\n        return \"drop\", \"자동 생성 코드\"\n    if not keep_tests and _match_any(low, TEST_PATTERNS):\n        return \"drop\", \"테스트 코드\"\n    if _match_any(low, TOOLING_PATTERNS):\n        return \"drop\", \"빌드·도구 설정\"\n    if ext in CODE_EXT:\n        if size == 0:\n            return \"drop\", \"빈 파일\"\n        if size > MAX_CODE_BYTES or (ext == \".sql\" and size > MAX_SQL_BYTES):\n            return \"drop\", \"너무 큰 단일 파일 (생성물·데이터로 추정)\"\n        return \"keep\", (CODE_EXT[ext], \"code\")\n    if ext in DOC_EXT or low in (\"license\", \"licence\", \"changelog\", \"authors\",\n                                 \"contributing\", \"notice\", \"copying\"):\n        return \"drop\", \"문서\"\n    if ext in STYLE_EXT:\n        return \"drop\", \"스타일시트\"\n    if ext in DATA_EXT:\n        return \"drop\", \"데이터·설정 파일\"\n    return \"drop\", \"기타 (코드 아님)\"","explain":"규칙을 **위에서부터 차례로** 적용해 처음 걸리는 사유로 버린다. 끝까지 살아남고 코드 확장자인 파일만 `keep` 이 된다.\n\n`package.json` 같은 명세 파일과 최상위 README 는 코드가 아니어도 남긴다. 몇 줄만 봐도 프로젝트 성격을 알려 주는 값싼 단서이기 때문이다.","points":[{"a":160,"b":163,"text":"명세 파일·README 는 예외적으로 유지."},{"a":168,"b":171,"text":"`*.min.js`, `*_pb2.py`, `*.g.dart` 등 이름 패턴으로 생성 코드를 알아본다."},{"a":176,"b":181,"text":"코드라도 1MB 를 넘으면 생성물·데이터로 보고 제외한다."}]}]},{"id":"scan-group","title":"반복 묶음 접기","summary":"같은 폴더에 같은 이름 패턴이 여러 개면 대표만 남긴다.","code":[{"title":"번호 시리즈 찾기","file":"skill_scripts/scan.py","start":296,"end":304,"lang":"python","source":"def stem(f):\n    return os.path.splitext(os.path.basename(f[\"path\"]))[0]\n\nnumbered = [f for f in remaining\n            if re.match(r\"^[vV]?\\d+([_\\-.]|$)\", stem(f)) or re.search(r\"\\d{2,}$\", stem(f))]\nif len(numbered) >= 4:\n    groups.append({\"dir\": d, \"pattern\": \"번호 시리즈 *%s\" % ext,\n                   \"members\": numbered, \"always\": True})\n    remaining = [f for f in remaining if f not in numbered]","explain":"`0001_init.sql`, `page03.ts` 처럼 번호가 붙은 파일이 한 폴더에 4개 이상이면 '번호 시리즈' 묶음으로 본다. 이런 파일은 구조가 거의 같아서 하나만 읽어도 충분하다.","points":[{"a":299,"b":300,"text":"앞에 번호가 붙거나(`v2_`, `0001_`) 끝이 두 자리 이상 숫자면 해당."},{"a":303,"b":303,"text":"`always: True` — 프로젝트 크기와 상관없이 항상 접는다."}]},{"title":"접을지 결정","file":"skill_scripts/scan.py","start":381,"end":394,"lang":"python","source":"# 반복 묶음: 번호 시리즈는 항상, 그 외는 큰 프로젝트일 때만 접는다\ngroups_out = []\nfor i, g in enumerate(find_groups(files)):\n    do_collapse = collapse == \"always\" or (collapse == \"auto\" and (g[\"always\"] or big))\n    rep_files = pick_reps(g[\"members\"], reps)\n    rep_paths = [f[\"path\"] for f in rep_files]\n    others = [f for f in g[\"members\"] if f[\"path\"] not in rep_paths]\n    gid = \"g%d\" % (i + 1)\n    if do_collapse:\n        for f in others:\n            files.remove(f)\n            dropped.add(\"반복 패턴 (대표만 분석)\", f[\"path\"], f[\"size\"])\n        for f in rep_files:\n            f[\"group\"] = gid","explain":"묶음을 찾았다고 무조건 버리지는 않는다. `*Controller` 같은 접미사 묶음은 각자 다른 기능일 수 있으므로 **큰 프로젝트일 때만** 접는다. 접으면 대표 파일만 남고 나머지는 이름만 기록된다.","points":[{"a":384,"b":384,"text":"판단 기준: 번호 시리즈이거나, 프로젝트가 크거나(`big`), 사용자가 강제했거나."},{"a":385,"b":385,"text":"대표는 가장 큰 파일과 중간 크기 파일 — 가장 풍부한 것과 평균적인 것."},{"a":390,"b":392,"text":"나머지는 목록에서 빼고 '반복 패턴' 사유로 기록."}]}]},{"id":"scan-zip","title":"zip 은 살아남은 것만 풀기","summary":"걸러진 파일은 압축 해제조차 하지 않는다.","code":[{"title":"선별 압축 해제","file":"skill_scripts/scan.py","start":402,"end":418,"lang":"python","source":"# zip 이면 살아남은 파일만 푼다\nos.makedirs(out_dir, exist_ok=True)\nroot = src\nif is_zip:\n    root = os.path.join(out_dir, \"src\")\n    total = 0\n    for f in files:\n        info = zinfos[f[\"path\"]]\n        total += info.file_size\n        if total > 300_000_000:\n            raise SystemExit(\"압축 해제 용량이 300MB를 넘어 중단합니다.\")\n        dest = os.path.join(root, f[\"path\"])\n        if not os.path.abspath(dest).startswith(os.path.abspath(root) + os.sep):\n            continue\n        os.makedirs(os.path.dirname(dest), exist_ok=True)\n        with zf.open(info) as fi, open(dest, \"wb\") as fo:\n            fo.write(fi.read())","explain":"zip 입력이면 이름 목록에 규칙을 먼저 적용하고, **통과한 파일만** 작업 폴더에 푼다.","points":[{"a":410,"b":412,"text":"압축 폭탄 방지: 합계 300MB 를 넘으면 중단."},{"a":414,"b":415,"text":"경로가 작업 폴더 밖을 가리키면 건너뛴다 (zip-slip 방지)."}]}]}]},{"id":"skel","title":"뼈대 뽑기","summary":"원문 대신 시그니처 · 호출 관계 · import 그래프만 추린 요약본을 만든다. 로컬에서 돌므로 토큰 0.","file":"skill_scripts/skeleton.py","children":[{"id":"skel-sym","title":"함수·클래스 찾기","summary":"언어에 따라 두 가지 방법을 쓴다.","children":[{"id":"skel-py","title":"파이썬: 문법 트리","summary":"`ast` 로 정확한 줄 범위와 독스트링 첫 줄을 얻는다.","code":[{"title":"py_symbols()","file":"skill_scripts/skeleton.py","start":148,"end":166,"lang":"python","source":"def py_symbols(text):\n    tree = ast.parse(text)\n    out = []\n\n    def start_of(node):\n        decos = getattr(node, \"decorator_list\", [])\n        return min([node.lineno] + [d.lineno for d in decos])\n\n    def doc(node):\n        try:\n            d = ast.get_docstring(node, clean=True)\n        except Exception:\n            d = None\n        return _short(d.strip().splitlines()[0], 70) if d and d.strip() else \"\"\n\n    def decos(node):\n        res = []\n        for d in getattr(node, \"decorator_list\", [])[:2]:\n            try:","explain":"파이썬은 표준 라이브러리 `ast` 로 파싱한다. 정규식보다 정확하고, 데코레이터(`@app.route` 등)가 붙은 줄부터 시작 줄로 잡아 준다.","points":[{"a":152,"b":154,"text":"데코레이터가 있으면 그 줄을 시작으로 삼는다."},{"a":156,"b":161,"text":"독스트링은 첫 줄만 70자까지 — 설명은 값싸고 신호가 좋다."}]}]},{"id":"skel-gen","title":"그 외 언어: 정규식","summary":"JS/TS, Go, Rust, Java, Kotlin, Swift, Dart 등 계열별 패턴.","code":[{"title":"generic_symbols()","file":"skill_scripts/skeleton.py","start":269,"end":299,"lang":"python","source":"def generic_symbols(lines, fam):\n    pats = COMPILED.get(fam)\n    if not pats:\n        return []\n    raw = []\n    for i, line in enumerate(lines):\n        if not line.strip() or len(line) > 400:\n            continue\n        first = line.split(None, 1)[0] if line.split() else \"\"\n        for kind, rx in pats:\n            m = rx.match(line)\n            if not m:\n                continue\n            name = m.group(1)\n            if name in CONTROL:\n                continue\n            if fam == \"typed\" and kind == \"func\" and first.rstrip(\"(\") in CONTROL:\n                continue  # `return foo(x)` 같은 문장을 함수 정의로 오인하지 않게\n            if kind == \"type\":\n                end = brace_end(lines, i) if \"{\" in line else i\n            elif fam in INDENT_FAMILIES:\n                end = indent_end(lines, i)\n            elif fam in (\"sql\", \"lua\", \"r\", \"sh\") and \"{\" not in line:\n                end = None\n            else:\n                end = brace_end(lines, i)\n            raw.append({\"kind\": kind, \"name\": name, \"start\": i + 1,\n                        \"end\": (end + 1) if end is not None else None,\n                        \"sig\": _short(line.strip().rstrip(\"{\").rstrip(), 90),\n                        \"doc\": _doc_above(lines, i), \"depth\": 0, \"decos\": []})\n            break","explain":"한 줄씩 보며 언어 계열별 정규식에 맞는 '정의 줄'을 찾고, 중괄호 짝(`brace_end`)이나 들여쓰기(`indent_end`)로 끝 줄을 구한다.","points":[{"a":283,"b":286,"text":"`if (...) {` 나 `return foo(x)` 를 함수 정의로 오인하지 않도록 제어 키워드를 걸러 낸다."},{"a":287,"b":294,"text":"끝 줄 찾는 방식을 언어 계열에 따라 고른다."}]}]}]},{"id":"skel-call","title":"호출 관계 잇기","summary":"함수 본문에서 '프로젝트 안에 정의된 이름'을 부르는 곳만 골라낸다.","code":[{"title":"이름표 만들고 본문 훑기","file":"skill_scripts/skeleton.py","start":484,"end":503,"lang":"python","source":"# 프로젝트 전체 심볼 이름표 → 호출 관계\ndefined = defaultdict(set)\nfor p, info in infos.items():\n    for s in info[\"syms\"]:\n        if s[\"kind\"] != \"type\":\n            defined[s[\"name\"]].add(p)\nfor p, info in infos.items():\n    lines = info[\"text_lines\"]\n    covered = [False] * (len(lines) + 2)\n    for s in info[\"syms\"]:\n        if s[\"kind\"] in (\"func\", \"method\"):\n            body = \"\\n\".join(lines[s[\"start\"] - 1: s[\"end\"]])\n            calls = []\n            for name in CALL_RE.findall(body):\n                if name == s[\"name\"] or name in calls or name in COMMON_NAMES:\n                    continue\n                where = defined.get(name)\n                if where and (p in where or len(where) \u003c= 3):\n                    calls.append(name)\n            s[\"calls\"] = calls[:6]","explain":"먼저 프로젝트 전체의 함수·클래스 이름표(`defined`)를 만든다. 그다음 각 함수 본문에서 `이름(` 꼴을 찾아, 이름표에 있는 것만 호출로 기록한다. 이것이 마인드맵의 **흐름**을 잡는 재료다.","points":[{"a":485,"b":489,"text":"이름 → 그 이름이 정의된 파일들."},{"a":498,"b":498,"text":"`get`, `run` 처럼 너무 흔한 이름은 정보가 없어 뺀다."},{"a":501,"b":501,"text":"같은 이름이 4개 이상 파일에 있으면 모호하므로 제외 (같은 파일 안이면 인정)."}]}]},{"id":"skel-rank","title":"중요도 매기기","summary":"진입점 · 많이 import 되는 파일이 위로 온다.","code":[{"title":"점수 계산","file":"skill_scripts/skeleton.py","start":517,"end":538,"lang":"python","source":"# 중요도\nfor p, info in infos.items():\n    stem = os.path.splitext(os.path.basename(p))[0]\n    toks = set(re.split(r\"[_\\-.]+\", re.sub(r\"([a-z])([A-Z])\", r\"\\1_\\2\", stem).lower()))\n    score = 4.0 * fan_in[p] + 1.5 * min(len(info[\"imports\"]), 6) + min(info[\"lines\"], 400) / 40.0\n    if info[\"entry_marker\"]:\n        score += 30\n    if stem.lower() in ENTRY_STEMS:\n        score += 10\n    if toks & LOW_TOKENS:\n        score -= 6\n    if stem == \"__init__\" and info[\"lines\"] \u003c 30:\n        score -= 8\n    score -= 1.5 * p.count(\"/\")\n    if p in dup_of:\n        score -= 100\n    info[\"score\"] = round(score, 1)\n    info[\"fan_in\"] = fan_in[p]\n    info[\"is_entry\"] = info[\"entry_marker\"] or (\n        stem.lower() in ENTRY_STEMS and fan_in[p] == 0)\n\norder = sorted(infos, key=lambda p: -infos[p][\"score\"])","explain":"파일마다 점수를 매겨 정렬한다. 이 순서가 '예산이 모자랄 때 무엇을 먼저 자세히 보여 줄지'를 결정한다.","points":[{"a":521,"b":521,"text":"기본 점수: 이 파일을 import 하는 파일 수(가중 4) + 내보내는 import + 길이."},{"a":522,"b":525,"text":"`__main__`, `app.listen(` 같은 진입점 표시나 `main`/`app`/`index` 이름에 가산점."},{"a":526,"b":532,"text":"util·config 류, 깊은 경로, 내용이 중복된 파일은 감점."}]}]},{"id":"skel-budget","title":"예산 안에서 상세도 조절","summary":"중요한 파일은 자세히, 덜 중요한 파일은 한 줄, 나머지는 이름만.","code":[{"title":"3단계 상세도","file":"skill_scripts/skeleton.py","start":618,"end":641,"lang":"python","source":"for p in order:\n    if p in dup_of:\n        names_only.append(\"%s (= %s 와 내용 동일)\" % (p, dup_of[p]))\n        levels[p] = 0\n        continue\n    if p in same_shape:\n        brief.append(render_brief(p) + \"  ≅ %s 와 같은 구조\" % same_shape[p])\n        levels[p] = 1\n        used += tok(brief[-1])\n        continue\n    if used \u003c budget * 0.8:\n        block = render_full(p)\n        if used + tok(block) \u003c= budget * 0.9 or not full:\n            full.append(block)\n            levels[p] = 2\n            used += tok(block)\n            continue\n    if used \u003c budget:\n        brief.append(render_brief(p))\n        levels[p] = 1\n        used += tok(brief[-1])\n    else:\n        names_only.append(p)\n        levels[p] = 0","explain":"중요도 순으로 돌면서 토큰 예산(기본 12,000)을 채운다. 예산의 80%까지는 **상세**(시그니처+호출), 100%까지는 **요약**(한 줄), 넘으면 **이름만** 싣는다. 프로젝트가 아무리 커도 뼈대 크기는 예산을 넘지 않는다.","points":[{"a":619,"b":622,"text":"내용이 완전히 같은 파일은 이름만."},{"a":623,"b":627,"text":"함수 구성이 똑같은 파일(CRUD 류)은 첫 파일만 자세히, 나머지는 '같은 구조' 표시."},{"a":628,"b":634,"text":"예산 80% 전까지는 상세 블록."}]}]}]},{"id":"read","title":"필요한 줄만 읽기","summary":"LLM 이 뼈대를 보고 고른 줄 범위만 꺼내 준다. 누적 줄 수를 세어 예산을 알려 준다.","file":"skill_scripts/skeleton.py","code":[{"title":"범위 해석","file":"skill_scripts/skeleton.py","start":728,"end":742,"lang":"python","source":"out, this = [], 0\nfor spec in specs:\n    if \"::\" in spec:\n        path, sym = spec.split(\"::\", 1)\n        hits = [s for s in sk.get(path, {}).get(\"syms\", []) if s[\"name\"] == sym]\n        if not hits:\n            out.append(\"!! %s: 심볼 '%s' 을(를) 찾지 못함\" % (path, sym))\n            continue\n        a, b = hits[0][\"start\"], hits[0][\"end\"]\n    else:\n        m = re.match(r\"^(.*):(\\d+)(?:-(\\d+))?$\", spec)\n        if not m:\n            out.append(\"!! 형식 오류: %s (경로:시작-끝 또는 경로::심볼)\" % spec)\n            continue\n        path, a = m.group(1), int(m.group(2))","explain":"`경로:시작-끝` 또는 `경로::함수이름` 두 가지 형식을 받는다. 함수 이름으로 요청하면 뼈대에 저장해 둔 줄 범위를 찾아 준다. 파일을 통째로 읽는 대신 필요한 함수만 읽게 하는 장치다.","points":[{"a":730,"b":736,"text":"`::` 형식 — skeleton.json 에서 심볼을 찾아 줄 범위로 바꾼다."},{"a":738,"b":742,"text":"`:` 형식 — 줄 번호를 직접 지정."}]}]},{"id":"build","title":"HTML 로 조립","summary":"analysis.json 의 줄 참조를 실제 코드로 바꿔 템플릿에 끼워 넣는다.","file":"skill_scripts/build.py","children":[{"id":"build-code","title":"참조 → 실제 코드","summary":"LLM 은 코드를 다시 쓰지 않는다. 줄 번호만 주면 여기서 꺼낸다.","code":[{"title":"검증하고 꺼내기","file":"skill_scripts/build.py","start":80,"end":91,"lang":"python","source":"if not (1 \u003c= a \u003c= b \u003c= len(lines)):\n    errors.append(\"%s: 줄 범위 %s-%s 가 파일 길이(%d줄)를 벗어남\" % (label, a, b, len(lines)))\n    return None\nn = b - a + 1\nif n > MAX_SNIPPET:\n    errors.append(\"%s: %d줄은 너무 김 (최대 %d줄). 핵심 부분만 고르거나 조각을 나눌 것\" % (label, n, MAX_SNIPPET))\n    return None\nif n > WARN_SNIPPET:\n    warns.append(\"%s: %d줄 — 더 좁힐 수 있는지 검토\" % (label, n))\nif not str(c.get(\"explain\", \"\")).strip():\n    warns.append(\"%s: explain 이 비어 있음\" % label)\nsrc = textwrap.dedent(\"\\n\".join(l.expandtabs(4).rstrip() for l in lines[a - 1:b]))","explain":"출력 토큰은 입력보다 훨씬 비싸다. 그래서 analysis.json 에는 `file` 과 `lines` 만 있고, 코드 원문은 이 스크립트가 디스크에서 읽어 넣는다. 범위가 틀리면 오류로 알려 줘서 LLM 이 고칠 수 있게 한다.","points":[{"a":80,"b":82,"text":"줄 범위가 파일을 벗어나면 오류."},{"a":84,"b":86,"text":"조각 하나는 최대 80줄 — 길면 핵심만 다시 고르게 한다."},{"a":91,"b":91,"text":"공통 들여쓰기를 걷어 내 박스 안에서 왼쪽 정렬되게 한다."}]}]},{"id":"build-inject","title":"템플릿에 끼워 넣기","summary":"자리표시자 하나를 JSON 으로 바꾸면 끝. 결과는 파일 한 개.","code":[{"title":"데이터 주입","file":"skill_scripts/build.py","start":184,"end":190,"lang":"python","source":"with open(template_path, encoding=\"utf-8\") as fp:\n    html = fp.read()\nif \"__CODEMAP_DATA__\" not in html:\n    raise SystemExit(\"템플릿에 __CODEMAP_DATA__ 자리표시자가 없습니다.\")\npayload = json.dumps(data, ensure_ascii=False, separators=(\",\", \":\"))\npayload = payload.replace(\"\u003c\", \"\\\\u003c\").replace(\"\\u2028\", \"\\\\u2028\").replace(\"\\u2029\", \"\\\\u2029\")\nhtml = html.replace(\"__CODEMAP_DATA__\", payload, 1)","explain":"템플릿의 `__CODEMAP_DATA__` 를 분석 결과 JSON 으로 치환한다. 외부 파일이 필요 없는 **단일 HTML** 이 되어 메일이나 메신저로 그대로 보낼 수 있다.","points":[{"a":189,"b":189,"text":"코드 안에 `\u003c/script>` 가 있어도 깨지지 않도록 `\u003c` 를 유니코드 이스케이프로 바꾼다."}]}]}]},{"id":"view","title":"마인드맵 화면","summary":"박스를 누르면 하위 기능과 코드가, 코드를 누르면 설명이 펼쳐진다. 다시 누르면 접힌다.","file":"template/mindmap.html","children":[{"id":"view-toggle","title":"펼치고 접기","summary":"하위 박스는 처음 펼칠 때 만들고, 접을 때는 숨기기만 한다.","code":[{"title":"setOpen()","file":"template/mindmap.html","start":421,"end":436,"lang":"html","source":"function setOpen(it, open) {\n  if (!it.kids.length || it.open === open) return;\n  if (open && !it.kidsEl) {\n    var k = document.createElement('div');\n    k.className = 'kids' + (it.ordered ? ' ordered' : '');\n    it.kids.forEach(function (c) { k.appendChild(renderBranch(c)); });\n    it.el.appendChild(k); it.kidsEl = k;\n  }\n  it.open = open;\n  it.kidsEl.hidden = !open;\n  it.nodeEl.classList.toggle('open', open);\n  it.nodeEl.setAttribute('aria-expanded', String(open));\n  var tog = it.nodeEl.querySelector(':scope > .tog');\n  if (tog) tog.textContent = open ? '−' : it.kids.length;\n  if (open) { it.kidsEl.classList.remove('enter'); void it.kidsEl.offsetWidth; it.kidsEl.classList.add('enter'); }\n}","explain":"한 박스의 열림 상태를 바꾼다. 하위 박스는 **처음 펼칠 때만** 만들어서, 지도가 커도 시작이 빠르다. 접을 때는 지우지 않고 숨겨서 안쪽에 펼쳐 둔 상태가 유지된다.","points":[{"a":423,"b":428,"text":"처음 펼칠 때 하위 박스를 만든다."},{"a":433,"b":434,"text":"손잡이 표시: 닫혀 있으면 하위 개수, 열려 있으면 −."}]},{"title":"누른 박스 붙잡아 두기","file":"template/mindmap.html","start":505,"end":517,"lang":"html","source":"function keepStill(anchorEl, fn) {\n  var a = anchorEl.getBoundingClientRect();\n  fn();\n  var b = anchorEl.getBoundingClientRect();\n  tx += a.left - b.left; ty += a.top - b.top;\n  apply(); draw();\n}\nfunction toggle(it) {\n  if (!it.kids.length) return;\n  canvas.classList.remove('glide');\n  keepStill(it.nodeEl, function () { setOpen(it, !it.open); });\n  settle(it);\n}","explain":"하위가 펼쳐지면 부모 박스는 세로 가운데로 다시 정렬되므로 화면에서 튀어 버린다. 펼치기 전후의 화면 위치 차이만큼 캔버스를 반대로 밀어, **누른 박스가 제자리에 있는 것처럼** 보이게 한다.","points":[{"a":506,"b":509,"text":"전후 위치를 재서 차이만큼 보정."},{"a":516,"b":516,"text":"새로 나온 박스가 화면 밖이면 부드럽게 끌어온다."}]}]},{"id":"view-edge","title":"연결선 그리기","summary":"박스 위치를 읽어 SVG 곡선으로 잇는다.","code":[{"title":"draw()","file":"template/mindmap.html","start":444,"end":461,"lang":"html","source":"function draw() {\n  var out = [];\n  (function walk(it) {\n    if (!it.open || !it.kidsEl) return;\n    var p = box(it.nodeEl), x1 = p.x + p.w + 11, y1 = p.y + p.h / 2, prev = null;\n    it.kids.forEach(function (c) {\n      var q = box(c.nodeEl), x2 = q.x, y2 = q.y + q.h / 2, mx = (x2 - x1) * 0.5;\n      out.push('\u003cpath class=\"edge ' + c.type + '\" style=\"--h:' + (c.hue == null ? 255 : c.hue) + '\" d=\"M' + x1 + ' ' + y1 + 'C' + (x1 + mx) + ' ' + y1 + ' ' + (x2 - mx) + ' ' + y2 + ' ' + x2 + ' ' + y2 + '\"/>');\n      if (it.ordered && prev && c.type === 'node') {\n        var fx = q.x + 22;\n        out.push('\u003cpath class=\"flow\" marker-end=\"url(#arr)\" d=\"M' + fx + ' ' + (prev.y + prev.h + 3) + 'L' + fx + ' ' + (q.y - 3) + '\"/>');\n      }\n      if (c.type === 'node') prev = q;\n      walk(c);\n    });\n  })(root);\n  edgeG.innerHTML = out.join('');\n}","explain":"열려 있는 가지를 따라 내려가며 부모의 오른쪽 가운데에서 자식의 왼쪽 가운데로 곡선을 긋는다. 최상위처럼 순서가 있는 단계끼리는 위→아래 화살표를 더해 **전체 흐름**을 보여 준다.","points":[{"a":450,"b":451,"text":"부모→자식 3차 베지어 곡선. 색은 가지마다 다르다."},{"a":452,"b":455,"text":"순서 있는 형제 사이의 흐름 화살표."}]}]}]}],"links":[{"from":"scan","to":"skel","label":"manifest.json"},{"from":"skel","to":"read","label":"skeleton.json"},{"from":"build","to":"view","label":"데이터 주입"}]}</script>
+<script>
+(function () {
+'use strict';
+
+/* 자리표시자가 채워지지 않은 템플릿 원본을 그대로 열었을 때 보여 줄 예시 */
+var DEMO = {
+  title: '예시 프로젝트', generated: '템플릿 미리보기',
+  summary: '이 화면은 템플릿 자체의 예시 데이터입니다. build 를 거치면 실제 분석 결과로 채워집니다.',
+  scope: { analyzed: 3, in_map: 2, dropped_files: 14, dropped_dirs: 2,
+    dropped: [{ reason: '의존성·외부 라이브러리 폴더', files: 0, dirs: 1, examples: ['node_modules/'] },
+              { reason: '테스트 코드', files: 6, dirs: 1, examples: ['tests/', 'app.test.js'] },
+              { reason: '이미지·폰트·미디어·바이너리', files: 8, dirs: 0, examples: ['logo.png'] }],
+    groups: [] },
+  nodes: [
+    { id: 'in', title: '입력 받기', summary: '명령줄 인자를 읽어 할 일을 정한다.', file: 'todo.py',
+      code: [{ title: '인자 해석', file: 'todo.py', start: 21, end: 27, lang: 'python',
+        source: 'def main(argv):\n    cmd, *rest = argv or ["list"]\n    if cmd == "add":\n        return add(" ".join(rest))\n    if cmd == "done":\n        return done(int(rest[0]))\n    return show()',
+        explain: '프로그램의 **진입점**이다. 첫 단어를 명령으로 보고, 나머지를 그 명령의 인자로 넘긴다.\n\n아무것도 주지 않으면 `list` 로 간주해 목록을 보여 준다.',
+        points: [{ a: 22, b: 22, text: '인자가 없을 때의 기본값을 여기서 정한다.' },
+                 { a: 23, b: 26, text: '명령마다 담당 함수로 넘긴다. 새 명령은 여기에 추가.' }] }] },
+    { id: 'store', title: '저장하기', summary: '할 일 목록을 JSON 파일로 읽고 쓴다.', file: 'store.py',
+      children: [
+        { id: 'load', title: '불러오기', summary: '파일이 없으면 빈 목록으로 시작.',
+          code: [{ title: 'load()', file: 'store.py', start: 8, end: 12, lang: 'python',
+            source: 'def load(path=DB):\n    if not os.path.exists(path):\n        return []\n    with open(path) as f:\n        return json.load(f)',
+            explain: '저장 파일을 읽어 파이썬 리스트로 돌려준다. 처음 실행해 파일이 없을 때도 오류 없이 동작한다.', points: [] }] },
+        { id: 'save', title: '저장', summary: '목록 전체를 덮어쓴다.' }
+      ] }
+  ],
+  links: [{ from: 'in', to: 'store', label: '호출' }]
+};
+
+var DATA = null;
+try { DATA = JSON.parse(document.getElementById('codemap-data').textContent); } catch (e) { DATA = null; }
+if (!DATA || !DATA.nodes) DATA = DEMO;
+
+var $ = function (s) { return document.querySelector(s); };
+var vp = $('#vp'), canvas = $('#canvas'), tree = $('#tree'), edgeG = $('#edge-g'), zoomV = $('#zoom-v'), scopeEl = $('#scope');
+
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function inline(s) { return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>'); }
+function paras(s) { return String(s || '').split(/\n{2,}/).filter(Boolean).map(function (p) { return '<p>' + inline(p).replace(/\n/g, '<br>') + '</p>'; }).join(''); }
+
+/* ── 문법 강조 (가벼운 범용 토크나이저) ── */
+var KW = {};
+('def class return if elif else for while in not and or is import from as try except finally with lambda yield async await pass break continue raise None True False self ' +
+ 'function const let var new this typeof instanceof export default extends implements interface type enum public private protected static final void ' +
+ 'func package go defer struct map chan range switch case fn mut impl trait pub use mod match where null nil undefined true false throw throws catch super ' +
+ 'override val when object fun do end then begin module require include using namespace readonly abstract int string bool float double char long')
+  .split(' ').forEach(function (k) { KW[k] = 1; });
+var S_DQ = /"(?:\\.|[^"\\\n])*"/.source, S_SQ = /'(?:\\.|[^'\\\n])*'/.source, S_BT = /`(?:\\.|[^`\\])*`/.source,
+    S_TRI = /"""[\s\S]*?"""|'''[\s\S]*?'''/.source, S_CHAR = /'(?:\\.|[^'\\])'/.source,
+    C_HASH = /#[^\n]*/.source, C_BLOCK = /\/\*[\s\S]*?\*\//.source, C_SL = /\/\/[^\n]*/.source + '|' + C_BLOCK,
+    C_DASH = /--[^\n]*/.source, C_ML = /<!--[\s\S]*?-->/.source,
+    NUM = /\b(?:0[xX][\da-fA-F]+|\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?)\b/.source,
+    DEC = /@[A-Za-z_][\w.]*/.source, ID = /[A-Za-z_$][\w$]*/.source;
+function tokenRe(lang) {
+  var com = /^(python|ruby|sh|r|yaml|toml)$/.test(lang) ? C_HASH
+          : /^(sql|lua)$/.test(lang) ? C_DASH + '|' + C_BLOCK
+          : lang === 'html' ? C_ML + '|' + C_BLOCK
+          : /^(vue|svelte)$/.test(lang) ? C_ML + '|' + C_SL
+          : lang === 'php' ? C_SL + '|' + C_HASH : C_SL;
+  var str = (lang === 'python' ? S_TRI + '|' : '') + S_DQ + '|' + (lang === 'rust' ? S_CHAR : S_SQ) +
+            (/^(js|jsx|ts|tsx|vue|svelte|go|kotlin|swift|dart)$/.test(lang) ? '|' + S_BT : '');
+  return new RegExp('(' + com + ')|(' + str + ')|(' + NUM + ')|(' + DEC + ')|' + ID, 'g');
+}
+function hlLines(src, lang) {
+  var re = tokenRe(lang), out = [''], last = 0, m;
+  function put(text, cls) {
+    var parts = text.split('\n');
+    for (var i = 0; i < parts.length; i++) {
+      if (i) out.push('');
+      if (parts[i]) out[out.length - 1] += cls ? '<span class="t-' + cls + '">' + esc(parts[i]) + '</span>' : esc(parts[i]);
+    }
+  }
+  while ((m = re.exec(src))) {
+    if (m[0] === '') { re.lastIndex++; continue; }
+    if (m.index > last) put(src.slice(last, m.index));
+    var tok = m[0], cls = null;
+    if (m[1]) cls = 'com'; else if (m[2]) cls = 'str'; else if (m[3]) cls = 'num'; else if (m[4]) cls = 'dec';
+    else if (KW.hasOwnProperty(tok)) cls = 'kw';
+    else if (/^\s*\(/.test(src.substr(re.lastIndex, 3))) cls = 'fn';
+    else if (/^[A-Z][A-Za-z0-9]*[a-z]/.test(tok)) cls = 'type';
+    put(tok, cls); last = re.lastIndex;
+  }
+  if (last < src.length) put(src.slice(last));
+  return out;
+}
+
+/* ── 데이터 → 트리 모델 ── */
+var HUES = [255, 150, 45, 325, 200, 100, 20, 285];
+var byId = {}, linksOut = {}, linksIn = {};
+function mk(type, data, parent) {
+  return { type: type, data: data, parent: parent, depth: parent ? parent.depth + 1 : 0, kids: [], open: false,
+           hue: parent ? parent.hue : null, ordered: false, step: null, el: null, nodeEl: null, kidsEl: null };
+}
+function addNode(n, parent, idx) {
+  var it = mk('node', n, parent);
+  if (parent.type === 'root') it.hue = HUES[idx % HUES.length];
+  if (parent.ordered) it.step = idx + 1;
+  it.ordered = !!n.flow;
+  if (n.id) byId[n.id] = it;
+  (n.children || []).forEach(function (c, i) { it.kids.push(addNode(c, it, i)); });
+  (n.code || []).forEach(function (c) {
+    var ci = mk('code', c, it);
+    if (c.explain || (c.points && c.points.length)) ci.kids.push(mk('explain', c, ci));
+    it.kids.push(ci);
+  });
+  return it;
+}
+var root = mk('root', DATA, null);
+root.ordered = DATA.ordered !== false;
+DATA.nodes.forEach(function (n, i) { root.kids.push(addNode(n, root, i)); });
+(DATA.links || []).forEach(function (l) {
+  (linksOut[l.from] = linksOut[l.from] || []).push(l);
+  (linksIn[l.to] = linksIn[l.to] || []).push(l);
+});
+
+/* ── 박스 그리기 ── */
+function togHtml(it) { return it.kids.length ? '<span class="tog" aria-hidden="true">' + it.kids.length + '</span>' : ''; }
+function renderNode(it) {
+  var d = it.data, el = document.createElement('div'), h = '';
+  el._it = it;
+  if (it.type === 'root') {
+    el.className = 'node root';
+    h = '<div class="eyebrow">프로젝트</div><div class="title">' + esc(d.title) + '</div>' + (d.summary ? '<p class="sum">' + inline(d.summary) + '</p>' : '');
+  } else if (it.type === 'node') {
+    el.className = 'node feat' + (it.kids.length ? '' : ' leaf');
+    var nSub = (d.children || []).length, nCode = (d.code || []).length, meta = '', lk = '';
+    if (d.file) meta += '<span class="chip" title="' + esc(d.file) + '">' + esc(d.file.split('/').pop()) + '</span>';
+    if (nSub) meta += '<span class="chip">하위 ' + nSub + '</span>';
+    if (nCode) meta += '<span class="chip">코드 ' + nCode + '</span>';
+    (linksOut[d.id] || []).forEach(function (l) { if (byId[l.to]) lk += '<button type="button" class="lk" data-go="' + esc(l.to) + '">→ ' + esc(byId[l.to].data.title) + (l.label ? ' <span>' + esc(l.label) + '</span>' : '') + '</button>'; });
+    (linksIn[d.id] || []).forEach(function (l) { if (byId[l.from]) lk += '<button type="button" class="lk" data-go="' + esc(l.from) + '">← ' + esc(byId[l.from].data.title) + (l.label ? ' <span>' + esc(l.label) + '</span>' : '') + '</button>'; });
+    h = '<div class="row">' + (it.step ? '<span class="step">' + it.step + '</span>' : '') + '<span class="title">' + esc(d.title) + '</span></div>' +
+        (d.summary ? '<p class="sum">' + inline(d.summary) + '</p>' : '') +
+        (meta ? '<div class="meta">' + meta + '</div>' : '') + (lk ? '<div class="links">' + lk + '</div>' : '');
+  } else if (it.type === 'code') {
+    el.className = 'node code' + (it.kids.length ? '' : ' leaf');
+    var lines = hlLines(d.source || '', d.lang || ''), body = '';
+    for (var i = 0; i < lines.length; i++) body += '<span class="l" data-n="' + (d.start + i) + '"><span class="ln">' + (d.start + i) + '</span><span class="lc">' + lines[i] + '</span></span>';
+    h = '<div class="code-head"><span class="code-title">' + esc(d.title) + '</span><span class="code-loc" title="' + esc(d.file) + '">' + esc(d.file.split('/').pop()) + ':' + d.start + '–' + d.end + '</span><button type="button" class="copy" data-copy>복사</button></div>' +
+        '<pre class="src">' + body + '</pre>' +
+        (it.kids.length ? '<div class="code-foot"><span class="when-closed">눌러서 설명 보기 →</span><span class="when-open">← 다시 누르면 설명 닫기</span></div>' : '');
+  } else {
+    el.className = 'node explain';
+    var pts = (d.points || []).map(function (p) {
+      return '<li class="pt" tabindex="0" data-a="' + p.a + '" data-b="' + p.b + '"><span class="pt-ln">' + (p.a === p.b ? p.a : p.a + '–' + p.b) + '줄</span><span>' + inline(p.text) + '</span></li>';
+    }).join('');
+    h = '<div class="eyebrow">설명</div><div class="prose">' + paras(d.explain) + '</div>' + (pts ? '<ul class="pts">' + pts + '</ul>' : '');
+  }
+  el.innerHTML = h + (it.type === 'explain' ? '' : togHtml(it));
+  if (it.kids.length) { el.setAttribute('role', 'button'); el.tabIndex = 0; el.setAttribute('aria-expanded', 'false'); }
+  return el;
+}
+function renderBranch(it) {
+  var b = document.createElement('div');
+  b.className = 'branch';
+  if (it.hue != null) b.style.setProperty('--h', it.hue);
+  it.el = b; it.nodeEl = renderNode(it);
+  b.appendChild(it.nodeEl);
+  return b;
+}
+function setOpen(it, open) {
+  if (!it.kids.length || it.open === open) return;
+  if (open && !it.kidsEl) {
+    var k = document.createElement('div');
+    k.className = 'kids' + (it.ordered ? ' ordered' : '');
+    it.kids.forEach(function (c) { k.appendChild(renderBranch(c)); });
+    it.el.appendChild(k); it.kidsEl = k;
+  }
+  it.open = open;
+  it.kidsEl.hidden = !open;
+  it.nodeEl.classList.toggle('open', open);
+  it.nodeEl.setAttribute('aria-expanded', String(open));
+  var tog = it.nodeEl.querySelector(':scope > .tog');
+  if (tog) tog.textContent = open ? '−' : it.kids.length;
+  if (open) { it.kidsEl.classList.remove('enter'); void it.kidsEl.offsetWidth; it.kidsEl.classList.add('enter'); }
+}
+
+/* ── 연결선 ── */
+function box(el) {
+  var x = 0, y = 0, e = el;
+  while (e && e !== canvas) { x += e.offsetLeft; y += e.offsetTop; e = e.offsetParent; }
+  return { x: x, y: y, w: el.offsetWidth, h: el.offsetHeight };
+}
+function draw() {
+  var out = [];
+  (function walk(it) {
+    if (!it.open || !it.kidsEl) return;
+    var p = box(it.nodeEl), x1 = p.x + p.w + 11, y1 = p.y + p.h / 2, prev = null;
+    it.kids.forEach(function (c) {
+      var q = box(c.nodeEl), x2 = q.x, y2 = q.y + q.h / 2, mx = (x2 - x1) * 0.5;
+      out.push('<path class="edge ' + c.type + '" style="--h:' + (c.hue == null ? 255 : c.hue) + '" d="M' + x1 + ' ' + y1 + 'C' + (x1 + mx) + ' ' + y1 + ' ' + (x2 - mx) + ' ' + y2 + ' ' + x2 + ' ' + y2 + '"/>');
+      if (it.ordered && prev && c.type === 'node') {
+        var fx = q.x + 22;
+        out.push('<path class="flow" marker-end="url(#arr)" d="M' + fx + ' ' + (prev.y + prev.h + 3) + 'L' + fx + ' ' + (q.y - 3) + '"/>');
+      }
+      if (c.type === 'node') prev = q;
+      walk(c);
+    });
+  })(root);
+  edgeG.innerHTML = out.join('');
+}
+var raf = 0;
+function queueDraw() { if (!raf) raf = requestAnimationFrame(function () { raf = 0; draw(); }); }
+
+/* ── 이동·확대 ── */
+var tx = 0, ty = 0, sc = 1;
+function apply() {
+  canvas.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + sc + ')';
+  vp.style.backgroundPosition = tx + 'px ' + ty + 'px';
+  vp.style.backgroundSize = (24 * sc) + 'px ' + (24 * sc) + 'px';
+  zoomV.textContent = Math.round(sc * 100) + '%';
+}
+function glide() { canvas.classList.add('glide'); clearTimeout(glide.t); glide.t = setTimeout(function () { canvas.classList.remove('glide'); }, 340); }
+function zoomAt(cx, cy, f) {
+  var r = vp.getBoundingClientRect(), ns = Math.min(2.5, Math.max(0.12, sc * f)), k = ns / sc;
+  cx -= r.left; cy -= r.top;
+  tx = cx - (cx - tx) * k; ty = cy - (cy - ty) * k; sc = ns; apply();
+}
+function fit(animate) {
+  var r = vp.getBoundingClientRect(), w = tree.offsetWidth, h = tree.offsetHeight, pad = 36;
+  sc = Math.max(0.12, Math.min(1, (r.width - pad * 2) / w, (r.height - pad * 2) / h));
+  tx = Math.max(pad, (r.width - w * sc) / 2); ty = Math.max(pad, (r.height - h * sc) / 2);
+  if (animate) glide();
+  apply();
+}
+function home() {
+  var r = vp.getBoundingClientRect(), h = tree.offsetHeight;
+  sc = Math.min(1, (r.height - 48) / h); sc = Math.max(sc, 0.75);
+  tx = Math.max(20, Math.min(r.width * 0.08, 90)); ty = Math.max(24, (r.height - h * sc) / 2);
+  apply();
+}
+/* 방금 펼친 하위 박스들이 화면 안에 들어오도록 살짝 민다 (누른 박스는 화면에 남긴다) */
+function settle(it) {
+  if (!it.open || !it.kidsEl) return;
+  var v = vp.getBoundingClientRect(), k = it.kidsEl.getBoundingClientRect(), n = it.nodeEl.getBoundingClientRect(), m = 28, dx = 0, dy = 0;
+  if (k.right > v.right - m) dx = v.right - m - k.right;
+  if (n.left + dx < v.left + m) dx = v.left + m - n.left;
+  if (k.bottom > v.bottom - m) dy = v.bottom - m - k.bottom;
+  if (k.top + dy < v.top + m) dy = v.top + m - k.top;
+  if (n.top + dy < v.top + m) dy = v.top + m - n.top;
+  if (n.bottom + dy > v.bottom - m) dy = v.bottom - m - n.bottom;
+  if (Math.abs(dx) > 1 || Math.abs(dy) > 1) { glide(); tx += dx; ty += dy; apply(); }
+}
+/* 펼치고 접을 때 기준 박스가 화면에서 튀지 않게 붙잡아 둔다 */
+function keepStill(anchorEl, fn) {
+  var a = anchorEl.getBoundingClientRect();
+  fn();
+  var b = anchorEl.getBoundingClientRect();
+  tx += a.left - b.left; ty += a.top - b.top;
+  apply(); draw();
+}
+function toggle(it) {
+  if (!it.kids.length) return;
+  canvas.classList.remove('glide');
+  keepStill(it.nodeEl, function () { setOpen(it, !it.open); });
+  settle(it);
+}
+function visible() { var out = []; (function w(it) { out.push(it); if (it.open) it.kids.forEach(w); })(root); return out; }
+function more() {
+  var c = visible().filter(function (i) { return !i.open && i.kids.length; });
+  if (!c.length) return;
+  var d = Math.min.apply(null, c.map(function (i) { return i.depth; }));
+  keepStill(root.nodeEl, function () { c.forEach(function (i) { if (i.depth === d) setOpen(i, true); }); });
+}
+function less() {
+  var o = visible().filter(function (i) { return i.open && i !== root; });
+  if (!o.length) return;
+  var d = Math.max.apply(null, o.map(function (i) { return i.depth; }));
+  keepStill(root.nodeEl, function () { o.forEach(function (i) { if (i.depth === d) setOpen(i, false); }); });
+}
+function reset() {
+  visible().reverse().forEach(function (i) { if (i !== root) setOpen(i, false); });
+  setOpen(root, true); draw(); home();
+}
+function reveal(id) {
+  var it = byId[id]; if (!it) return;
+  var chain = []; for (var p = it.parent; p; p = p.parent) chain.unshift(p);
+  keepStill(root.nodeEl, function () { chain.forEach(function (p) { setOpen(p, true); }); });
+  var v = vp.getBoundingClientRect(), n = it.nodeEl.getBoundingClientRect();
+  glide();
+  tx += (v.left + v.width / 2) - (n.left + n.width / 2); ty += (v.top + v.height / 2) - (n.top + n.height / 2);
+  apply();
+  it.nodeEl.classList.remove('flash'); void it.nodeEl.offsetWidth; it.nodeEl.classList.add('flash');
+  it.nodeEl.focus({ preventScroll: true });
+}
+
+/* ── 입력 처리 ── */
+var ptrs = {}, nPtr = 0, drag = null, pinch = null, moved = false;
+function two() { var a = []; for (var k in ptrs) a.push(ptrs[k]); return a; }
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y) || 1; }
+vp.addEventListener('pointerdown', function (e) {
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  if (e.target.closest('.float')) return;
+  if (!ptrs[e.pointerId]) nPtr++;
+  ptrs[e.pointerId] = { x: e.clientX, y: e.clientY };
+  canvas.classList.remove('glide');
+  if (nPtr === 1) { moved = false; drag = { x: e.clientX, y: e.clientY, tx: tx, ty: ty }; }
+  else if (nPtr === 2) { var p = two(); pinch = { d: dist(p[0], p[1]), sc: sc }; moved = true; drag = null; }
+});
+window.addEventListener('pointermove', function (e) {
+  if (!ptrs[e.pointerId]) return;
+  ptrs[e.pointerId] = { x: e.clientX, y: e.clientY };
+  if (pinch && nPtr === 2) {
+    var p = two();
+    zoomAt((p[0].x + p[1].x) / 2, (p[0].y + p[1].y) / 2, (pinch.sc * dist(p[0], p[1]) / pinch.d) / sc);
+    return;
+  }
+  if (!drag) return;
+  var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (!moved && Math.abs(dx) + Math.abs(dy) < 5) return;
+  moved = true; vp.classList.add('grabbing');
+  tx = drag.tx + dx; ty = drag.ty + dy; apply();
+});
+function up(e) {
+  if (!ptrs[e.pointerId]) return;
+  delete ptrs[e.pointerId]; nPtr--;
+  if (nPtr < 2) pinch = null;
+  if (nPtr <= 0) { nPtr = 0; drag = null; vp.classList.remove('grabbing'); }
+}
+window.addEventListener('pointerup', up);
+window.addEventListener('pointercancel', up);
+vp.addEventListener('wheel', function (e) {
+  if (e.target.closest('#scope')) return;
+  e.preventDefault();
+  canvas.classList.remove('glide');
+  if (e.ctrlKey || e.metaKey) zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.01));
+  else { tx -= e.deltaX; ty -= e.deltaY; apply(); }
+}, { passive: false });
+
+function copyText(text, btn) {
+  function done() { btn.textContent = '복사됨'; setTimeout(function () { btn.textContent = '복사'; }, 1200); }
+  function fallback() {
+    var ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); done(); } catch (e) {}
+    ta.remove();
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
+}
+function markLines(pt, cls, on) {
+  var it = pt.closest('.node')._it, a = +pt.dataset.a, b = +pt.dataset.b;
+  it.parent.nodeEl.querySelectorAll('.l').forEach(function (l) { var n = +l.dataset.n; if (n >= a && n <= b) l.classList.toggle(cls, on); });
+}
+function activate(target) {
+  var cp = target.closest('[data-copy]');
+  if (cp) { copyText(cp.closest('.node')._it.data.source || '', cp); return; }
+  var go = target.closest('[data-go]');
+  if (go) { reveal(go.dataset.go); return; }
+  var pt = target.closest('.pt');
+  if (pt) { var on = !pt.classList.contains('pin'); pt.classList.toggle('pin', on); markLines(pt, 'pin', on); return; }
+  var n = target.closest('.node');
+  if (n && n._it) toggle(n._it);
+}
+tree.addEventListener('click', function (e) { if (!moved) activate(e.target); });
+tree.addEventListener('keydown', function (e) {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  if (e.target.closest('button')) return;
+  if (e.target.classList.contains('node') || e.target.classList.contains('pt')) { e.preventDefault(); activate(e.target); }
+});
+tree.addEventListener('mouseover', function (e) { var pt = e.target.closest('.pt'); if (pt) markLines(pt, 'hl', true); });
+tree.addEventListener('mouseout', function (e) { var pt = e.target.closest('.pt'); if (pt && !pt.contains(e.relatedTarget)) markLines(pt, 'hl', false); });
+
+function center() { var r = vp.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }
+var ACT = {
+  more: more, less: less, reset: reset,
+  fit: function () { fit(true); },
+  zin: function () { var c = center(); glide(); zoomAt(c[0], c[1], 1.2); },
+  zout: function () { var c = center(); glide(); zoomAt(c[0], c[1], 1 / 1.2); },
+  theme: function () {
+    var el = document.documentElement, cur = el.getAttribute('data-theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    var next = cur === 'dark' ? 'light' : 'dark';
+    el.setAttribute('data-theme', next);
+    try { localStorage.setItem('codemap-theme', next); } catch (e) {}
+  },
+  scope: function () { scopeEl.hidden = !scopeEl.hidden; }
+};
+document.addEventListener('click', function (e) { var b = e.target.closest('[data-act]'); if (b && ACT[b.dataset.act]) ACT[b.dataset.act](); });
+document.addEventListener('keydown', function (e) {
+  if (e.target.closest('input,textarea') || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === '+' || e.key === '=') ACT.zin(); else if (e.key === '-') ACT.zout(); else if (e.key === '0') ACT.fit();
+  else if (e.key === 'Escape') scopeEl.hidden = true;
+});
+
+/* ── 머리말·분석 범위 ── */
+try { var saved = localStorage.getItem('codemap-theme'); if (saved) document.documentElement.setAttribute('data-theme', saved); } catch (e) {}
+$('#t-title').textContent = DATA.title || '코드맵';
+$('#t-sub').textContent = '코드맵' + (DATA.generated ? ' · ' + DATA.generated : '');
+if (DATA === DEMO) document.title = '코드맵 템플릿';
+var S = DATA.scope, sb = $('#b-scope');
+if (S) {
+  sb.dataset.act = 'scope';
+  sb.innerHTML = '파일 <b>' + S.analyzed + '</b>개 분석 · <b>' + (S.dropped_files + S.dropped_dirs) + '</b>건 제외';
+  var h = '<button type="button" class="btn icon x" data-act="scope" aria-label="닫기">✕</button><h2>분석 범위</h2>' +
+    '<p>토큰을 아끼기 위해, 이름만 보고 필요 없다고 판단한 파일은 열어 보지 않았습니다. 이 지도에 없는 내용은 아래에서 제외된 것일 수 있습니다.</p>' +
+    '<div class="stat"><div><b>' + S.analyzed + '</b><span>살펴본 코드 파일</span></div><div><b>' + S.in_map + '</b><span>지도에 실린 파일</span></div><div><b>' + S.dropped_files + '</b><span>제외한 파일</span></div></div>';
+  if (S.dropped && S.dropped.length) {
+    h += '<h3>제외한 것</h3>';
+    S.dropped.forEach(function (d) {
+      var n = [d.files ? '파일 ' + d.files : '', d.dirs ? '폴더 ' + d.dirs : ''].filter(Boolean).join(' · ');
+      h += '<div class="drop"><div>' + esc(d.reason) + '<span>' + n + '</span></div><small>' + (d.examples || []).map(esc).join(', ') + '</small></div>';
+    });
+  }
+  if (S.groups && S.groups.length) {
+    h += '<h3>반복 묶음</h3>';
+    S.groups.forEach(function (g) {
+      h += '<div class="drop"><div>' + esc(g.pattern) + '<span>×' + g.count + '</span></div><small>' + (g.collapsed ? '대표만 분석: ' + (g.reps || []).map(function (r) { return esc(r.split('/').pop()); }).join(', ') : '전부 분석 (같은 패턴)') + '</small></div>';
+    });
+  }
+  scopeEl.innerHTML = h;
+} else sb.hidden = true;
+
+/* ── 시작 ── */
+tree.appendChild(renderBranch(root));
+setOpen(root, true);
+home(); draw();
+if (window.ResizeObserver) new ResizeObserver(queueDraw).observe(tree);
+window.addEventListener('resize', queueDraw);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(queueDraw);
+})();
+</script>
+</body>
+</html>

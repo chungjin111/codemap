@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.DS_Store
+
+# 분석 작업 폴더 (내 컴퓨터 경로가 들어가므로 커밋하지 않는다)
+codemap_out/
