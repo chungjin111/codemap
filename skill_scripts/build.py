@@ -13,8 +13,9 @@ import json
 import os
 import textwrap
 
+import mapfmt
 from scan import CODE_EXT
-from skeleton import read_text
+from skeleton import find_symbol, read_text
 
 MAX_SNIPPET = 80      # 코드 조각 하나의 최대 줄 수
 WARN_SNIPPET = 45
@@ -28,19 +29,26 @@ def _load(path):
 def build(out_dir, analysis_path=None, template_path=None, output=None):
     man = _load(os.path.join(out_dir, "manifest.json"))
     root = os.path.abspath(man["root"])
-    analysis_path = analysis_path or os.path.join(out_dir, "analysis.json")
+    errors, warns = [], []
+    if analysis_path is None:   # map.txt(간결 표기)가 있으면 그것을, 없으면 analysis.json 을 쓴다
+        map_path = os.path.join(out_dir, "map.txt")
+        analysis_path = map_path if os.path.exists(map_path) else os.path.join(out_dir, "analysis.json")
     if not os.path.exists(analysis_path):
-        raise SystemExit("analysis.json 이 없습니다: %s" % analysis_path)
-    try:
-        an = _load(analysis_path)
-    except ValueError as e:
-        raise SystemExit("analysis.json 이 올바른 JSON이 아닙니다: %s" % e)
-    sk = {}
+        raise SystemExit("분석 결과가 없습니다: %s (map.txt 또는 analysis.json)" % analysis_path)
+    if analysis_path.endswith(".json"):
+        try:
+            an = _load(analysis_path)
+        except ValueError as e:
+            raise SystemExit("analysis.json 이 올바른 JSON이 아닙니다: %s" % e)
+    else:
+        with open(analysis_path, encoding="utf-8") as fp:
+            an, errors = mapfmt.parse(fp.read())
+    sk, plan = {}, {}
     sk_path = os.path.join(out_dir, "skeleton.json")
     if os.path.exists(sk_path):
-        sk = _load(sk_path)["files"]
+        whole = _load(sk_path)
+        sk, plan = whole["files"], whole.get("plan") or {}
 
-    errors, warns = [], []
     ids, used_files = set(), set()
     cache = {}
     stats = {"nodes": 0, "code": 0, "lines": 0, "depth": 0}
@@ -66,7 +74,7 @@ def build(out_dir, analysis_path=None, template_path=None, output=None):
             errors.append("%s: 파일을 찾을 수 없음 → %s" % (label, path))
             return None
         if c.get("symbol") and not c.get("lines"):
-            hits = [s for s in sk.get(path, {}).get("syms", []) if s["name"] == c["symbol"]]
+            hits = find_symbol(sk.get(path, {}).get("syms", []), c["symbol"])
             if not hits:
                 errors.append("%s: 심볼 '%s' 을(를) %s 에서 찾지 못함" % (label, c["symbol"], path))
                 return None
@@ -154,12 +162,16 @@ def build(out_dir, analysis_path=None, template_path=None, output=None):
         else:
             errors.append("links: '%s' → '%s' 중 존재하지 않는 id" % (l.get("from"), l.get("to")))
 
+    if plan and stats["code"] > plan["snippets"]:
+        warns.append("코드 조각 %d개 — 이번 분석 예산(%d개)을 넘었다. 덜 중요한 조각을 뺄 것"
+                     % (stats["code"], plan["snippets"]))
     for w in warns:
         print("경고  " + w)
     if errors:
         for e in errors:
             print("오류  " + e)
-        raise SystemExit("\n오류 %d건 — analysis.json 을 고친 뒤 다시 build 하세요." % len(errors))
+        raise SystemExit("\n오류 %d건 — %s 을(를) 고친 뒤 다시 build 하세요." % (
+            len(errors), os.path.basename(analysis_path)))
 
     t = man["totals"]
     data = {

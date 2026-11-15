@@ -100,7 +100,7 @@ FAMILY = {
     "go": "go", "rust": "rust", "kotlin": "kw", "swift": "kw", "scala": "kw",
     "php": "kw", "java": "typed", "cs": "typed", "c": "typed", "cpp": "typed",
     "dart": "typed", "objc": "typed", "ruby": "ruby", "sh": "sh", "sql": "sql",
-    "lua": "lua", "r": "r", "python": "python",
+    "lua": "lua", "r": "r", "python": "python", "html": "js",
 }
 INDENT_FAMILIES = {"ruby", "python"}
 COMPILED = {fam: [(k, re.compile(p)) for k, p in pats] for fam, pats in PATTERNS.items()}
@@ -144,10 +144,89 @@ def _indent(line):
     return len(line) - len(line.lstrip())
 
 
+# ── 긴 함수·큰 파일 안의 길잡이 ────────────────────────────────────────
+LONG_FN = 50                         # 이보다 긴 함수는 안쪽 구획을 뼈대에 싣는다
+_CMT_RE = re.compile(r"^\s*(?://+|#+|--|/\*+|<!--)\s?(.*?)\s*(?:\*/|-->)?\s*$")
+_BANNER_RE = re.compile(r"[─━═]{2,}|={3,}|-{4,}|\*{4,}|#{4,}")
+_SKIP_CMT = ("noqa", "type:", "pylint", "eslint", "todo", "fixme", "@ts-", "prettier")
+
+
+def _cmt_text(line):
+    m = _CMT_RE.match(line)
+    if not m:
+        return None
+    t = m.group(1).strip(" ─━═=-*#/")
+    if len(t) < 3 or t.lower().startswith(_SKIP_CMT):
+        return None
+    return _short(t, 38)
+
+
+def _thin(marks, span, cap=10):
+    """길잡이가 너무 촘촘하면 간격을 두고 추린다. 중첩 함수는 우선 남긴다."""
+    marks = sorted(set(marks), key=lambda m: m[0])
+    gap = max(4, span // 14)
+    out, last = [], -10 ** 9
+    for m in marks:
+        if m[0] - last >= gap or m[1].startswith("def "):
+            out.append(m)
+            last = m[0]
+    return out[:cap + 4]
+
+
+def body_marks(lines, start, end, nested):
+    """함수 [start, end] 안의 구획 주석(본문 들여쓰기 깊이의 한 줄 주석)과 중첩 함수."""
+    if end - start < LONG_FN:
+        return []
+    marks = [(n["start"], "def %s" % n["name"], n["end"]) for n in nested]
+    inner = range(start, min(end - 1, len(lines)))    # 정의 줄 다음 줄부터 닫는 줄 앞까지 (0-based)
+    base = _indent(lines[start - 1])
+    deeper = [_indent(lines[k]) for k in inner if lines[k].strip() and _indent(lines[k]) > base]
+    if deeper:
+        body_indent = min(deeper)                     # 여러 줄 시그니처가 있어도 본문 깊이를 찾는다
+        for k in inner:
+            if lines[k].strip() and _indent(lines[k]) == body_indent:
+                t = _cmt_text(lines[k])
+                if t:
+                    marks.append((k + 1, t, None))
+    return _thin(marks, end - start)
+
+
+def file_sections(lines, syms, lang):
+    """심볼 바깥의 큰 구획: 배너 주석(── 제목 ──)과 HTML 의 <style>/<script> 시작."""
+    covered = [False] * (len(lines) + 2)
+    for s in syms:
+        if s["depth"] == 0 and s["kind"] != "class":
+            for k in range(s["start"], min(s["end"], len(lines)) + 1):
+                covered[k] = True
+    out = []
+    for i, line in enumerate(lines, 1):
+        if covered[i] or len(line) > 200:
+            continue
+        if lang == "html":
+            m = re.match(r"^\s*<(script|style|main|header|body)\b", line)
+            if m:
+                out.append((i, "<%s>" % m.group(1), None))
+                continue
+        if _BANNER_RE.search(line):
+            t = _cmt_text(line)
+            if t:
+                out.append((i, t, None))
+    return _thin(out, max(len(lines), 1), cap=14)
+
+
 # ── 심볼 추출 ──────────────────────────────────────────────────────────
 def py_symbols(text):
     tree = ast.parse(text)
     out = []
+    lines = text.splitlines()
+
+    def nested_of(node):
+        res = []
+        for sub in ast.walk(node):
+            if sub is not node and isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                res.append({"kind": "nested", "name": sub.name, "depth": 2, "end": sub.end_lineno,
+                            "start": min([sub.lineno] + [d.lineno for d in sub.decorator_list])})
+        return res
 
     def start_of(node):
         decos = getattr(node, "decorator_list", [])
@@ -175,10 +254,12 @@ def py_symbols(text):
         except Exception:
             args = "…"
         pre = "async def " if isinstance(node, ast.AsyncFunctionDef) else "def "
+        nested = nested_of(node)
         return {"kind": "method" if depth else "func", "name": node.name,
                 "start": start_of(node), "end": node.end_lineno,
                 "sig": "%s%s(%s)" % (pre, node.name, args), "doc": doc(node),
-                "depth": depth, "decos": decos(node)}
+                "depth": depth, "decos": decos(node), "_nested": nested,
+                "marks": body_marks(lines, node.lineno, node.end_lineno, nested)}
 
     entry = False
     for node in tree.body:
@@ -294,14 +375,15 @@ def generic_symbols(lines, fam):
                 end = brace_end(lines, i)
             raw.append({"kind": kind, "name": name, "start": i + 1,
                         "end": (end + 1) if end is not None else None,
-                        "sig": _short(line.strip().rstrip("{").rstrip(), 90),
+                        "sig": _short((line.split("{", 1)[0] if kind in ("func", "method")
+                                       and fam not in INDENT_FAMILIES else line).strip().rstrip("{").rstrip(), 90),
                         "doc": _doc_above(lines, i), "depth": 0, "decos": []})
             break
     for k, s in enumerate(raw):  # 끝을 못 찾은 것은 다음 심볼 직전까지
         if s["end"] is None:
             s["end"] = (raw[k + 1]["start"] - 1) if k + 1 < len(raw) else len(lines)
 
-    out, cls, top_fn_end = [], None, 0
+    out, cls, top_fn_end, top_fn = [], None, 0, None
     for s in raw:
         if cls and s["start"] > cls["end"]:
             cls = None
@@ -314,17 +396,25 @@ def generic_symbols(lines, fam):
         if s["kind"] == "method" and not inside_cls:
             continue
         if inside_cls:
-            if s["start"] <= top_fn_end:      # 메서드 안의 중첩 함수
+            if s["start"] <= top_fn_end:      # 메서드 안의 중첩 함수 → 부모의 길잡이로
+                top_fn.setdefault("_nested", []).append(s)
                 continue
             s["kind"], s["depth"] = "method", 1
-            top_fn_end = s["end"]
+            top_fn_end, top_fn = s["end"], s
             out.append(s)
         else:
-            if s["start"] <= top_fn_end:      # 함수 안의 중첩 함수
+            if s["start"] <= top_fn_end:      # 함수 안의 중첩 함수 → 부모의 길잡이로
+                top_fn.setdefault("_nested", []).append(s)
                 continue
             if s["kind"] != "type":
-                top_fn_end = s["end"]
+                top_fn_end, top_fn = s["end"], s
             out.append(s)
+    for s in out:
+        if s["kind"] in ("func", "method"):
+            nested = [{"kind": "nested", "name": n["name"], "start": n["start"], "end": n["end"], "depth": 2}
+                      for n in s.get("_nested", [])]
+            s["_nested"] = nested
+            s["marks"] = body_marks(lines, s["start"], s["end"], nested)
     return out
 
 
@@ -413,10 +503,12 @@ def analyze_file(root, f):
             syms = generic_symbols(lines, "python")
     elif fam:
         syms = generic_symbols(lines, fam)
+    nested = [n for s in syms for n in s.pop("_nested", [])]
     markers = [rx for rx in ENTRY_MARKERS if re.search(rx, text, re.M)]
     return {
         "lines": len(lines), "syms": syms, "entry_marker": entry or bool(markers),
         "imports_raw": find_imports(text, fam), "text_lines": lines,
+        "nested": nested, "sections": file_sections(lines, syms, f["lang"]),
         "hash": hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()[:16],
         "norm_hash": hashlib.sha1(re.sub(r"\s+", "", text).encode("utf-8", "replace")).hexdigest()[:16],
     }
@@ -438,7 +530,23 @@ def head_of(root, path, max_chars):
 
 
 # ── 본체 ───────────────────────────────────────────────────────────────
-def build_skeleton(out_dir, budget=12000):
+DEPTHS = {   # 배율, 조각당 읽을 줄, 조각당 줄 설명 수, 설명 문장 수, 이름
+    "quick": (0.5, 18, 1, "1~2", "빠르게"),
+    "normal": (1.0, 22, 2, "2~3", "보통"),
+    "deep": (2.0, 30, 4, "2~4", "자세히"),
+}
+
+
+def make_plan(raw_tokens, depth="normal"):
+    """프로젝트 크기에 맞춰 이번 분석의 상한을 정한다. (지도 크기가 비용을 좌우하므로)"""
+    mult, per, pts, sent, label = DEPTHS[depth]
+    base = max(8, min(40, int(round(raw_tokens / 1500.0))))
+    snippets = max(4, int(round(base * mult)))
+    return {"depth": depth, "label": label, "snippets": snippets,
+            "read_lines": snippets * per, "points": pts, "sentences": sent}
+
+
+def build_skeleton(out_dir, budget=12000, depth="normal"):
     with open(os.path.join(out_dir, "manifest.json"), encoding="utf-8") as fp:
         man = json.load(fp)
     root = man["root"]
@@ -594,6 +702,11 @@ def build_skeleton(out_dir, budget=12000):
             if s["doc"]:
                 line += "  — " + s["doc"]
             out.append(line)
+            if s.get("marks"):
+                out.append(pad + "    ├ " + " · ".join(
+                    ("%d-%d %s" % (a, e, t)) if e else ("%d %s" % (a, t)) for a, t, e in s["marks"]))
+        if info.get("sections"):
+            out.append("  구획: " + " · ".join("%d %s" % (a, t) for a, t, _e in info["sections"]))
         return "\n".join(out)
 
     def render_brief(p):
@@ -642,8 +755,16 @@ def build_skeleton(out_dir, budget=12000):
 
     entries = [p for p in order if infos[p]["is_entry"]][:8]
     md = ["# %s — 코드 뼈대" % man["name"],
-          "코드 %d개 · 원문 약 %s토큰 → 이 뼈대 약 __TOK__토큰. 표기: `시작-끝줄 시그니처 » 내부 호출  — 설명`, ←n = 이 파일을 import하는 파일 수."
+          "코드 %d개 · 원문 약 %s토큰 → 이 뼈대 약 __TOK__토큰. 표기: `시작-끝줄 시그니처 » 내부 호출  — 설명`, ←n = 이 파일을 import하는 파일 수. `├` = 긴 함수 안의 구획(줄 번호 + 주석 또는 중첩 함수), `구획:` = 파일 안의 큰 구획 시작 줄."
           % (len(infos), format(raw_tok, ","))]
+    plan = make_plan(raw_tok, depth)
+    md.append("\n# 이번 분석 예산 (%s) — 반드시 지킨다\n"
+              "- 코드 조각: %d개 이하, 조각당 10~40줄\n"
+              "- 읽기: 합쳐서 %d줄 이하. read 가 누적을 세고, 넘으면 더 내주지 않는다\n"
+              "- 설명: 조각당 %s문장, 줄 설명은 조각당 %d개 이하\n"
+              "- 흐름을 이해하는 데 꼭 필요한 조각부터 고른다. 읽은 줄은 대부분 지도에 실려야 한다 "
+              "(훑어보려고 읽지 않는다. 아래 뼈대로 고른 뒤 그 범위만 읽는다)\n"
+              % (plan["label"], plan["snippets"], plan["read_lines"], plan["sentences"], plan["points"]))
     if raw_tok < 8000:
         md.append("※ 프로젝트가 작다(원문 8천 토큰 미만). 뼈대만 믿지 말고 핵심 파일은 통째로 읽어도 된다.")
     if changes and (changes["changed"] or changes["added"] or changes["removed"]):
@@ -688,34 +809,38 @@ def build_skeleton(out_dir, budget=12000):
 
     with open(os.path.join(out_dir, "skeleton.md"), "w", encoding="utf-8") as fp:
         fp.write(text)
-    store = {"files": {}}
+    store = {"files": {}, "plan": plan}
     for p, info in infos.items():
         store["files"][p] = {
             "hash": info["hash"], "lines": info["lines"], "lang": info["lang"],
             "level": levels.get(p, 0), "score": info["score"],
             "imports": info["imports"], "entry": info["is_entry"],
-            "syms": [{k: s[k] for k in ("kind", "name", "start", "end", "depth")} for s in info["syms"]],
+            "syms": [{k: s[k] for k in ("kind", "name", "start", "end", "depth")}
+                     for s in info["syms"] + info.get("nested", [])],
         }
     with open(os.path.join(out_dir, "skeleton.json"), "w", encoding="utf-8") as fp:
         json.dump(store, fp, ensure_ascii=False)
     return {
         "files": len(infos), "raw_tokens": raw_tok, "skeleton_tokens": tok(text),
         "full": len(full), "brief": len(brief), "names": len(names_only),
-        "skipped": len(skipped), "changes": changes,
+        "skipped": len(skipped), "changes": changes, "plan": plan,
         "path": os.path.join(out_dir, "skeleton.md"),
     }
 
 
 # ── 2단계 · 필요한 줄만 읽기 ───────────────────────────────────────────
-def read_ranges(out_dir, specs, budget_lines=1500, max_range=150):
+def read_ranges(out_dir, specs, budget_lines=None, max_range=150):
     """`경로:시작-끝` 또는 `경로::심볼이름` 을 받아 줄 번호와 함께 출력한다."""
     with open(os.path.join(out_dir, "manifest.json"), encoding="utf-8") as fp:
         root = json.load(fp)["root"]
-    sk = {}
+    sk, plan = {}, {}
     sk_path = os.path.join(out_dir, "skeleton.json")
     if os.path.exists(sk_path):
         with open(sk_path, encoding="utf-8") as fp:
-            sk = json.load(fp)["files"]
+            whole = json.load(fp)
+        sk, plan = whole["files"], whole.get("plan") or {}
+    if budget_lines is None:
+        budget_lines = plan.get("read_lines", 1500)
     log_path = os.path.join(out_dir, "read_log.json")
     log = {"lines": 0, "ranges": []}
     if os.path.exists(log_path):
@@ -729,7 +854,7 @@ def read_ranges(out_dir, specs, budget_lines=1500, max_range=150):
     for spec in specs:
         if "::" in spec:
             path, sym = spec.split("::", 1)
-            hits = [s for s in sk.get(path, {}).get("syms", []) if s["name"] == sym]
+            hits = find_symbol(sk.get(path, {}).get("syms", []), sym)
             if not hits:
                 out.append("!! %s: 심볼 '%s' 을(를) 찾지 못함" % (path, sym))
                 continue
@@ -751,6 +876,9 @@ def read_ranges(out_dir, specs, budget_lines=1500, max_range=150):
         cut = b - a + 1 > max_range
         if cut:
             b = a + max_range - 1
+        if log["lines"] + this + (b - a + 1) > budget_lines * 1.1:
+            out.append("!! 읽기 예산 소진 — 건너뜀: %s (이미 읽은 내용으로 작성할 것)" % spec)
+            continue
         out.append("── %s:%d-%d ──" % (path, a, b))
         out.extend("%d| %s" % (n, lines[n - 1].rstrip()) for n in range(a, b + 1))
         if cut:
@@ -758,9 +886,25 @@ def read_ranges(out_dir, specs, budget_lines=1500, max_range=150):
         this += b - a + 1
         log["ranges"].append("%s:%d-%d" % (path, a, b))
     log["lines"] += this
+    text = "\n".join(out)            # 실험 측정용: LLM 문맥에 실제로 들어간 글자 수와 호출 횟수
+    log["chars"] = log.get("chars", 0) + len(text)
+    log["hangul"] = log.get("hangul", 0) + sum(1 for ch in text if "\uac00" <= ch <= "\ud7a3")
+    log["calls"] = log.get("calls", 0) + 1
     with open(log_path, "w", encoding="utf-8") as fp:
         json.dump(log, fp, ensure_ascii=False)
-    over = " ⚠ 예산 초과 — 꼭 필요한 것만 더 읽을 것" if log["lines"] > budget_lines else ""
+    over = " ⚠ 예산을 다 썼다 — 더 읽지 말고 작성할 것" if log["lines"] >= budget_lines else ""
     out.append("[읽기 예산] 이번 %d줄 · 누적 %d/%d줄%s" % (this, log["lines"], budget_lines, over))
     return "\n".join(out)
 
+
+def find_symbol(syms, name):
+    """이름으로 심볼을 찾는다. `클래스.메서드` 꼴이면 그 클래스 안의 메서드만 본다."""
+    if "." in name:
+        cls_name, meth = name.rsplit(".", 1)
+        out = []
+        for c in syms:
+            if c["kind"] == "class" and c["name"] == cls_name:
+                out.extend(m for m in syms if m["name"] == meth and c["start"] < m["start"] <= c["end"])
+        if out:
+            return out
+    return [s for s in syms if s["name"] == name]
