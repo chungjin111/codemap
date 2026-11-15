@@ -155,15 +155,25 @@ button { font: inherit; color: inherit; }
 .node.code.open { border-color: var(--accent); }
 .code-head { display: flex; align-items: center; gap: 10px; padding: 8px 14px 8px 12px; border-bottom: 1px solid var(--line); background: var(--surface); border-radius: 12px 12px 0 0; }
 .code-title { font-weight: 650; font-size: 13px; }
-.code-loc { margin-left: auto; font: 11px/1.4 var(--mono); color: var(--muted); white-space: nowrap; }
+.code-loc { margin-left: auto; border: 0; background: none; padding: 2px 0; cursor: pointer; font: 11px/1.4 var(--mono); color: var(--muted); text-align: right; overflow-wrap: anywhere; }
+.code-loc:hover { color: var(--accent); text-decoration: underline; }
+.code-loc:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .copy { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 1px 8px; font-size: 11px; color: var(--muted); cursor: pointer; }
 .copy:hover { color: var(--ink); border-color: var(--muted); }
 .src { margin: 0; padding: 8px 0; font: 12px/1.6 var(--mono); color: var(--code-ink); tab-size: 4; }
 .l { display: grid; grid-template-columns: 46px minmax(0, 1fr); min-height: 1.6em; }
-.ln { text-align: right; padding-right: 12px; color: var(--muted); opacity: .55; }
+.ln { text-align: right; padding-right: 12px; color: var(--muted); opacity: .55; cursor: pointer; }
+.ln:hover { opacity: 1; color: var(--accent); text-decoration: underline; }
 .lc { white-space: pre-wrap; overflow-wrap: anywhere; padding-right: 18px; }
 .l.hl, .l.pin { background: color-mix(in oklch, var(--accent) 17%, transparent); }
 .l.hl .ln, .l.pin .ln { opacity: 1; color: var(--accent); font-weight: 700; }
+.l.sel { background: color-mix(in oklch, var(--accent) 28%, transparent); }
+.l.sel .ln { opacity: 1; color: var(--accent); font-weight: 700; }
+.locbar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-top: 1px solid var(--line); background: var(--surface); font: 11.5px/1.5 var(--mono); }
+.locbar-k { font: 700 10.5px/1 var(--sans); letter-spacing: .06em; color: var(--accent); }
+.locbar-v { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--ink); }
+.chip.path { cursor: pointer; }
+.chip.path:hover { border-color: var(--accent); color: var(--accent); }
 .t-com { color: var(--t-com); font-style: italic; } .t-str { color: var(--t-str); } .t-kw { color: var(--t-kw); }
 .t-num { color: var(--t-num); } .t-fn { color: var(--t-fn); } .t-type { color: var(--t-type); } .t-dec { color: var(--t-dec); }
 .code-foot { padding: 6px 12px; font-size: 11.5px; color: var(--accent); font-weight: 600; border-top: 1px dashed var(--line); border-radius: 0 0 12px 12px; }
@@ -185,6 +195,8 @@ button { font: inherit; color: inherit; }
 .float { position: absolute; z-index: 4; cursor: default; }
 .hint { left: 14px; bottom: 14px; font-size: 11.5px; color: var(--muted); background: color-mix(in oklch, var(--surface) 88%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; }
 .hint b { color: var(--ink); font-weight: 600; }
+#toast { left: 50%; bottom: 58px; translate: -50% 8px; opacity: 0; pointer-events: none; max-width: calc(100% - 28px); overflow-wrap: anywhere; background: var(--ink); color: var(--bg); font: 12px/1.5 var(--mono); padding: 7px 12px; border-radius: 8px; box-shadow: var(--shadow); transition: opacity .15s, translate .15s; }
+#toast.show { opacity: 1; translate: -50% 0; }
 .zoom { right: 14px; bottom: 14px; display: flex; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
 .zoom button { width: 32px; height: 32px; border: 0; background: none; cursor: pointer; font-size: 16px; border-radius: 8px; }
 .zoom button:hover { background: var(--surface-2); }
@@ -249,8 +261,9 @@ button { font: inherit; color: inherit; }
     </svg>
     <div id="tree"></div>
   </div>
-  <div class="float hint"><b>박스</b> 클릭 → 하위 기능·코드 &nbsp;·&nbsp; <b>코드</b> 클릭 → 설명 (다시 누르면 닫힘) &nbsp;·&nbsp; 드래그로 이동 &nbsp;·&nbsp; Ctrl/⌘+휠로 확대</div>
+  <div class="float hint"><b>박스</b> 클릭 → 하위 기능·코드 &nbsp;·&nbsp; <b>코드</b> 클릭 → 설명 (다시 누르면 닫힘) &nbsp;·&nbsp; <b>줄 번호</b> 클릭 → 파일·줄 위치 &nbsp;·&nbsp; 드래그로 이동 &nbsp;·&nbsp; Ctrl/⌘+휠로 확대</div>
   <div class="float zoom"><button type="button" data-act="zout" aria-label="축소">−</button><span id="zoom-v">100%</span><button type="button" data-act="zin" aria-label="확대">+</button></div>
+  <div class="float" id="toast" role="status" aria-live="polite"></div>
   <aside class="float" id="scope" hidden></aside>
 </main>
 
@@ -384,7 +397,7 @@ function renderNode(it) {
   } else if (it.type === 'node') {
     el.className = 'node feat' + (it.kids.length ? '' : ' leaf');
     var nSub = (d.children || []).length, nCode = (d.code || []).length, meta = '', lk = '';
-    if (d.file) meta += '<span class="chip" title="' + esc(d.file) + '">' + esc(d.file.split('/').pop()) + '</span>';
+    if (d.file) meta += '<span class="chip path" data-loc="' + esc(d.file) + '" title="' + esc(d.file) + ' — 눌러서 경로 복사">' + esc(d.file.split('/').pop()) + '</span>';
     if (nSub) meta += '<span class="chip">하위 ' + nSub + '</span>';
     if (nCode) meta += '<span class="chip">코드 ' + nCode + '</span>';
     (linksOut[d.id] || []).forEach(function (l) { if (byId[l.to]) lk += '<button type="button" class="lk" data-go="' + esc(l.to) + '">→ ' + esc(byId[l.to].data.title) + (l.label ? ' <span>' + esc(l.label) + '</span>' : '') + '</button>'; });
@@ -395,8 +408,8 @@ function renderNode(it) {
   } else if (it.type === 'code') {
     el.className = 'node code' + (it.kids.length ? '' : ' leaf');
     var lines = hlLines(d.source || '', d.lang || ''), body = '';
-    for (var i = 0; i < lines.length; i++) body += '<span class="l" data-n="' + (d.start + i) + '"><span class="ln">' + (d.start + i) + '</span><span class="lc">' + lines[i] + '</span></span>';
-    h = '<div class="code-head"><span class="code-title">' + esc(d.title) + '</span><span class="code-loc" title="' + esc(d.file) + '">' + esc(d.file.split('/').pop()) + ':' + d.start + '–' + d.end + '</span><button type="button" class="copy" data-copy>복사</button></div>' +
+    for (var i = 0; i < lines.length; i++) body += '<span class="l" data-n="' + (d.start + i) + '"><span class="ln" title="눌러서 이 줄의 위치 보기">' + (d.start + i) + '</span><span class="lc">' + lines[i] + '</span></span>';
+    h = '<div class="code-head"><span class="code-title">' + esc(d.title) + '</span><button type="button" class="code-loc" data-loc="' + esc(d.file + ':' + d.start) + '" title="눌러서 위치 복사">' + esc(d.file) + ':' + d.start + '–' + d.end + '</button><button type="button" class="copy" data-copy>코드 복사</button></div>' +
         '<pre class="src">' + body + '</pre>' +
         (it.kids.length ? '<div class="code-foot"><span class="when-closed">눌러서 설명 보기 →</span><span class="when-open">← 다시 누르면 설명 닫기</span></div>' : '');
   } else {
@@ -587,15 +600,36 @@ vp.addEventListener('wheel', function (e) {
   else { tx -= e.deltaX; ty -= e.deltaY; apply(); }
 }, { passive: false });
 
-function copyText(text, btn) {
-  function done() { btn.textContent = '복사됨'; setTimeout(function () { btn.textContent = '복사'; }, 1200); }
+function copyText(text, done) {
   function fallback() {
-    var ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    var ok = false, ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
     document.body.appendChild(ta); ta.select();
-    try { document.execCommand('copy'); done(); } catch (e) {}
-    ta.remove();
+    try { ok = document.execCommand('copy'); } catch (e) {}
+    ta.remove(); done(!!ok);
   }
-  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { done(true); }, fallback); else fallback();
+}
+var toastEl = $('#toast');
+function toast(msg) {
+  toastEl.textContent = msg; toastEl.classList.add('show');
+  clearTimeout(toast.t); toast.t = setTimeout(function () { toastEl.classList.remove('show'); }, 2400);
+}
+/* 위치(파일:줄)를 알려 주고 클립보드에 넣는다. 복사가 막힌 환경에서도 위치는 보여 준다. */
+function tell(loc) { copyText(loc, function (ok) { toast((ok ? '복사됨 · ' : '') + loc); }); }
+/* 줄 번호를 누르면 그 줄을 표시하고 코드 박스 아래에 '파일:줄'을 띄운다. 같은 줄을 다시 누르면 없어진다. */
+function selectLine(lnEl) {
+  var nodeEl = lnEl.closest('.node'), row = lnEl.parentNode, on = !row.classList.contains('sel');
+  var loc = nodeEl._it.data.file + ':' + row.dataset.n;
+  canvas.classList.remove('glide');
+  keepStill(lnEl, function () {
+    nodeEl.querySelectorAll('.l.sel').forEach(function (l) { l.classList.remove('sel'); });
+    var bar = nodeEl.querySelector('.locbar');
+    if (!on) { if (bar) bar.remove(); return; }
+    row.classList.add('sel');
+    if (!bar) { bar = document.createElement('div'); bar.className = 'locbar'; nodeEl.querySelector('.src').after(bar); }
+    bar.innerHTML = '<span class="locbar-k">위치</span><span class="locbar-v">' + esc(loc) + '</span><button type="button" class="copy" data-loc="' + esc(loc) + '">복사</button>';
+  });
+  if (on) tell(loc);
 }
 function markLines(pt, cls, on) {
   var it = pt.closest('.node')._it, a = +pt.dataset.a, b = +pt.dataset.b;
@@ -603,7 +637,11 @@ function markLines(pt, cls, on) {
 }
 function activate(target) {
   var cp = target.closest('[data-copy]');
-  if (cp) { copyText(cp.closest('.node')._it.data.source || '', cp); return; }
+  if (cp) { copyText(cp.closest('.node')._it.data.source || '', function (ok) { if (ok) { cp.textContent = '복사됨'; setTimeout(function () { cp.textContent = '코드 복사'; }, 1200); } }); return; }
+  var lc = target.closest('[data-loc]');
+  if (lc) { tell(lc.dataset.loc); return; }
+  var ln = target.closest('.ln');
+  if (ln) { selectLine(ln); return; }
   var go = target.closest('[data-go]');
   if (go) { reveal(go.dataset.go); return; }
   var pt = target.closest('.pt');
