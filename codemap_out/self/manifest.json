@@ -1,0 +1,74 @@
+{
+ "name": "코드분석",
+ "root": "/Users/jeongjin/Desktop/코드분석",
+ "source": "dir",
+ "big": false,
+ "totals": {
+  "seen": 7,
+  "kept": 6,
+  "code": 5,
+  "dropped_files": 1,
+  "dropped_dirs": 1,
+  "est_tokens_before_collapse": 29929,
+  "est_tokens_raw": 29929
+ },
+ "files": [
+  {
+   "path": "README.md",
+   "size": 1955,
+   "lang": "readme",
+   "role": "readme"
+  },
+  {
+   "path": "skill_scripts/build.py",
+   "size": 8731,
+   "lang": "python",
+   "role": "code"
+  },
+  {
+   "path": "skill_scripts/codemap.py",
+   "size": 5001,
+   "lang": "python",
+   "role": "code"
+  },
+  {
+   "path": "skill_scripts/scan.py",
+   "size": 20690,
+   "lang": "python",
+   "role": "code"
+  },
+  {
+   "path": "skill_scripts/skeleton.py",
+   "size": 33511,
+   "lang": "python",
+   "role": "code"
+  },
+  {
+   "path": "template/mindmap.html",
+   "size": 39801,
+   "lang": "html",
+   "role": "code"
+  }
+ ],
+ "groups": [],
+ "dropped": [
+  {
+   "reason": "빌드 산출물·캐시 폴더",
+   "files": 0,
+   "dirs": 1,
+   "bytes": 0,
+   "examples": [
+    "codemap_out/"
+   ]
+  },
+  {
+   "reason": "문서",
+   "files": 1,
+   "dirs": 0,
+   "bytes": 6412,
+   "examples": [
+    "SKILL.md"
+   ]
+  }
+ ]
+}
